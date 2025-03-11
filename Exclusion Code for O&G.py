@@ -90,9 +90,9 @@ st.write("Upload an Excel file and set exclusion thresholds.")
 uploaded_file = st.file_uploader("Upload Excel file", type=["xlsx"])
 
 st.sidebar.header("Set Exclusion Thresholds")
-tar_sand_threshold = st.sidebar.text_input("Tar Sand Revenue Threshold (%)", "20")
-arctic_threshold = st.sidebar.text_input("Arctic Revenue Threshold (%)", "20")
-coalbed_threshold = st.sidebar.text_input("Coalbed Methane Revenue Threshold (%)", "20")
+tar_sand_threshold = st.sidebar.text_input("Tar Sand Revenue Threshold (%)")
+arctic_threshold = st.sidebar.text_input("Arctic Revenue Threshold (%)")
+coalbed_threshold = st.sidebar.text_input("Coalbed Methane Revenue Threshold (%)")
 total_threshold = st.sidebar.text_input("Total Revenue Threshold (%)", "20")
 
 # Convert inputs to numeric values
