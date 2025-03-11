@@ -126,6 +126,6 @@ if st.sidebar.button("Run Filtering Process"):
             st.download_button(
                 label="Download Filtered Excel",
                 data=filtered_output,
-                file_name="filtered_companies.xlsx",
+                file_name="Filtered Companies O&G.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
