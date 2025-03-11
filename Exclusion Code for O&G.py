@@ -5,7 +5,7 @@ from io import BytesIO
 
 def filter_companies_by_revenue(uploaded_file, tar_sand_threshold, arctic_threshold, coalbed_threshold, total_threshold):
     if uploaded_file is None:
-        return None
+        return None, None
     
     # Load the Excel file
     xls = pd.ExcelFile(uploaded_file)
@@ -72,6 +72,15 @@ def filter_companies_by_revenue(uploaded_file, tar_sand_threshold, arctic_thresh
     ]
     level2_retained = retained_companies.drop(level2_excluded.index)
     
+    # Statistics
+    stats = {
+        "Total Companies": len(df),
+        "Retained Companies (Level 1)": len(retained_companies),
+        "Excluded Companies (Level 1)": len(excluded_companies),
+        "Excluded Companies (Level 2)": len(level2_excluded),
+        "Retained Companies (Final)": len(level2_retained)
+    }
+    
     # Save to Excel in memory
     output = BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
@@ -81,7 +90,7 @@ def filter_companies_by_revenue(uploaded_file, tar_sand_threshold, arctic_thresh
         level2_retained.to_excel(writer, sheet_name="Retained Final", index=False)
     output.seek(0)
     
-    return output
+    return output, stats
 
 # Streamlit UI
 st.title("Company Revenue Filter")
@@ -90,9 +99,9 @@ st.write("Upload an Excel file and set exclusion thresholds.")
 uploaded_file = st.file_uploader("Upload Excel file", type=["xlsx"])
 
 st.sidebar.header("Set Exclusion Thresholds")
-tar_sand_threshold = st.sidebar.text_input("Tar Sand Revenue Threshold (%)")
-arctic_threshold = st.sidebar.text_input("Arctic Revenue Threshold (%)")
-coalbed_threshold = st.sidebar.text_input("Coalbed Methane Revenue Threshold (%)")
+tar_sand_threshold = st.sidebar.text_input("Tar Sand Revenue Threshold (%)", "20")
+arctic_threshold = st.sidebar.text_input("Arctic Revenue Threshold (%)", "20")
+coalbed_threshold = st.sidebar.text_input("Coalbed Methane Revenue Threshold (%)", "20")
 total_threshold = st.sidebar.text_input("Total Revenue Threshold (%)", "20")
 
 # Convert inputs to numeric values
@@ -103,10 +112,17 @@ total_threshold = float(total_threshold) if total_threshold else 20
 
 if st.sidebar.button("Run Filtering Process"):
     if uploaded_file:
-        filtered_output = filter_companies_by_revenue(uploaded_file, tar_sand_threshold, arctic_threshold, coalbed_threshold, total_threshold)
+        filtered_output, stats = filter_companies_by_revenue(uploaded_file, tar_sand_threshold, arctic_threshold, coalbed_threshold, total_threshold)
         
         if filtered_output:
             st.success("File processed successfully!")
+            
+            # Display statistics
+            st.subheader("Processing Statistics")
+            for key, value in stats.items():
+                st.write(f"**{key}:** {value}")
+            
+            # Download button
             st.download_button(
                 label="Download Filtered Excel",
                 data=filtered_output,
