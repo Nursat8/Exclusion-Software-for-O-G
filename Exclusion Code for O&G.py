@@ -23,18 +23,20 @@ def filter_companies_by_revenue(uploaded_file):
         "Bloomberg BB ID": "BB ID",
         "Bloomberg BB FIGI": "BB FIGI",
         "ISIN Codes ISIN equity": "ISIN equity",
+        "ISIN Codes ISINs bonds": "ISINs bonds",
         "LEI LEI": "LEI",
         "NACE NACE Classification": "NACE Classification",
         "NACE NACE Code": "NACE Code",
         "Unconventionals Tar Sands": "Tar Sand Revenue",
         "Unconventionals Arctic": "Arctic Revenue",
-        "Unconventionals Coalbed Methane": "Coalbed Methane Revenue",
-        "Primary Business Sectors Unnamed: 14_level_1": "Primary Business Sector",
-        "Pipelines Length of Pipelines under Development": "Pipeline Expansion",
-        "LNG Terminals Total Capacity under Development": "LNG Terminal Expansion"
+        "Unconventionals Coalbed Methane": "Coalbed Methane Revenue"
     }
     
     df.rename(columns=column_mapping, inplace=True, errors='ignore')
+    
+    # Keep only required columns
+    required_columns = list(column_mapping.values())
+    df = df[required_columns]
     
     revenue_columns = ["Tar Sand Revenue", "Arctic Revenue", "Coalbed Methane Revenue"]
     for col in revenue_columns:
@@ -50,22 +52,11 @@ def filter_companies_by_revenue(uploaded_file):
     retained_companies = df[df["Total Exclusion Revenue"] <= exclusion_threshold]
     excluded_companies = df[df["Total Exclusion Revenue"] > exclusion_threshold]
     
-    # Level 2 Exclusion
-    upstream_exclusion_keywords = ["Conventional Oil & Gas", "Unconventional Oil & Gas"]
-    level2_excluded = retained_companies[
-        retained_companies["Primary Business Sector"].astype(str).str.contains('|'.join(upstream_exclusion_keywords), case=False, na=False) |
-        retained_companies["Pipeline Expansion"].notna() |
-        retained_companies["LNG Terminal Expansion"].notna()
-    ]
-    level2_retained = retained_companies.drop(level2_excluded.index)
-    
     # Save to Excel in memory
     output = BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-        retained_companies.to_excel(writer, sheet_name="Retained Level 1", index=False)
-        excluded_companies.to_excel(writer, sheet_name="Excluded Level 1", index=False)
-        level2_excluded.to_excel(writer, sheet_name="Excluded Level 2", index=False)
-        level2_retained.to_excel(writer, sheet_name="Retained Final", index=False)
+        retained_companies.to_excel(writer, sheet_name="Retained Companies", index=False)
+        excluded_companies.to_excel(writer, sheet_name="Excluded Companies", index=False)
     output.seek(0)
     
     return output
