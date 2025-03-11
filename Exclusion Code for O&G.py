@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 from io import BytesIO
 
-def filter_companies_by_revenue(uploaded_file):
+def filter_companies_by_revenue(uploaded_file, tar_sand_threshold, arctic_threshold, coalbed_threshold, total_threshold):
     if uploaded_file is None:
         return None
     
@@ -51,9 +51,17 @@ def filter_companies_by_revenue(uploaded_file):
         df[revenue_columns] = df[revenue_columns] * 100
     
     df["Total Exclusion Revenue"] = df[revenue_columns].sum(axis=1)
-    exclusion_threshold = 20.0
-    retained_companies = df[df["Total Exclusion Revenue"] <= exclusion_threshold]
-    excluded_companies = df[df["Total Exclusion Revenue"] > exclusion_threshold]
+    
+    # Apply separate thresholds for each sector
+    sector_excluded = (
+        (df["Tar Sand Revenue"] > tar_sand_threshold) |
+        (df["Arctic Revenue"] > arctic_threshold) |
+        (df["Coalbed Methane Revenue"] > coalbed_threshold) |
+        (df["Total Exclusion Revenue"] > total_threshold)
+    )
+    
+    retained_companies = df[~sector_excluded]
+    excluded_companies = df[sector_excluded]
     
     # Level 2 Exclusion
     upstream_exclusion_keywords = ["Conventional Oil & Gas", "Unconventional Oil & Gas"]
@@ -70,19 +78,25 @@ def filter_companies_by_revenue(uploaded_file):
         retained_companies.to_excel(writer, sheet_name="Retained Level 1", index=False)
         excluded_companies.to_excel(writer, sheet_name="Excluded Level 1", index=False)
         level2_excluded.to_excel(writer, sheet_name="Excluded Level 2", index=False)
-        level2_retained.to_excel(writer, sheet_name="Retained Level 2", index=False)
+        level2_retained.to_excel(writer, sheet_name="Retained Final", index=False)
     output.seek(0)
     
     return output
 
 # Streamlit UI
 st.title("Company Revenue Filter")
-st.write("Upload an Excel file to filter companies based on revenue criteria.")
+st.write("Upload an Excel file and set exclusion thresholds.")
 
 uploaded_file = st.file_uploader("Upload Excel file", type=["xlsx"])
 
+st.sidebar.header("Set Exclusion Thresholds")
+tar_sand_threshold = st.sidebar.slider("Tar Sand Revenue Threshold (%)", 0, 100, 20)
+arctic_threshold = st.sidebar.slider("Arctic Revenue Threshold (%)", 0, 100, 20)
+coalbed_threshold = st.sidebar.slider("Coalbed Methane Revenue Threshold (%)", 0, 100, 20)
+total_threshold = st.sidebar.slider("Total Revenue Threshold (%)", 0, 100, 20)
+
 if uploaded_file:
-    filtered_output = filter_companies_by_revenue(uploaded_file)
+    filtered_output = filter_companies_by_revenue(uploaded_file, tar_sand_threshold, arctic_threshold, coalbed_threshold, total_threshold)
     
     if filtered_output:
         st.success("File processed successfully!")
