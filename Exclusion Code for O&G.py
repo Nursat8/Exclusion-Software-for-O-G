@@ -87,7 +87,7 @@ def filter_companies_by_revenue(uploaded_file, tar_sand_threshold, arctic_thresh
         retained_companies.to_excel(writer, sheet_name="Retained Level 1", index=False)
         excluded_companies.to_excel(writer, sheet_name="Excluded Level 1", index=False)
         level2_excluded.to_excel(writer, sheet_name="Excluded Level 2", index=False)
-        level2_retained.to_excel(writer, sheet_name="Retained Final", index=False)
+        level2_retained.to_excel(writer, sheet_name="Excluded Level 2", index=False)
     output.seek(0)
     
     return output, stats
@@ -99,9 +99,9 @@ st.write("Upload an Excel file and set exclusion thresholds.")
 uploaded_file = st.file_uploader("Upload Excel file", type=["xlsx"])
 
 st.sidebar.header("Set Exclusion Thresholds")
-tar_sand_threshold = st.sidebar.text_input("Tar Sand Revenue Threshold (%)", "20")
-arctic_threshold = st.sidebar.text_input("Arctic Revenue Threshold (%)", "20")
-coalbed_threshold = st.sidebar.text_input("Coalbed Methane Revenue Threshold (%)", "20")
+tar_sand_threshold = st.sidebar.text_input("Tar Sand Revenue Threshold (%)")
+arctic_threshold = st.sidebar.text_input("Arctic Revenue Threshold (%)")
+coalbed_threshold = st.sidebar.text_input("Coalbed Methane Revenue Threshold (%)")
 total_threshold = st.sidebar.text_input("Total Revenue Threshold (%)", "20")
 
 # Convert inputs to numeric values
