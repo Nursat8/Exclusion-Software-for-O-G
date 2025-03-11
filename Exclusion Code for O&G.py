@@ -90,19 +90,26 @@ st.write("Upload an Excel file and set exclusion thresholds.")
 uploaded_file = st.file_uploader("Upload Excel file", type=["xlsx"])
 
 st.sidebar.header("Set Exclusion Thresholds")
-tar_sand_threshold = st.sidebar.slider("Tar Sand Revenue Threshold (%)", 0, 100, 20)
-arctic_threshold = st.sidebar.slider("Arctic Revenue Threshold (%)", 0, 100, 20)
-coalbed_threshold = st.sidebar.slider("Coalbed Methane Revenue Threshold (%)", 0, 100, 20)
-total_threshold = st.sidebar.slider("Total Revenue Threshold (%)", 0, 100, 20)
+tar_sand_threshold = st.sidebar.text_input("Tar Sand Revenue Threshold (%)", "20")
+arctic_threshold = st.sidebar.text_input("Arctic Revenue Threshold (%)", "20")
+coalbed_threshold = st.sidebar.text_input("Coalbed Methane Revenue Threshold (%)", "20")
+total_threshold = st.sidebar.text_input("Total Revenue Threshold (%)", "20")
 
-if uploaded_file:
-    filtered_output = filter_companies_by_revenue(uploaded_file, tar_sand_threshold, arctic_threshold, coalbed_threshold, total_threshold)
-    
-    if filtered_output:
-        st.success("File processed successfully!")
-        st.download_button(
-            label="Download Filtered Excel",
-            data=filtered_output,
-            file_name="filtered_companies.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
+# Convert inputs to numeric values
+tar_sand_threshold = float(tar_sand_threshold) if tar_sand_threshold else 20
+arctic_threshold = float(arctic_threshold) if arctic_threshold else 20
+coalbed_threshold = float(coalbed_threshold) if coalbed_threshold else 20
+total_threshold = float(total_threshold) if total_threshold else 20
+
+if st.sidebar.button("Run Filtering Process"):
+    if uploaded_file:
+        filtered_output = filter_companies_by_revenue(uploaded_file, tar_sand_threshold, arctic_threshold, coalbed_threshold, total_threshold)
+        
+        if filtered_output:
+            st.success("File processed successfully!")
+            st.download_button(
+                label="Download Filtered Excel",
+                data=filtered_output,
+                file_name="filtered_companies.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
