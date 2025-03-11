@@ -87,7 +87,7 @@ def filter_companies_by_revenue(uploaded_file, tar_sand_threshold, arctic_thresh
         retained_companies.to_excel(writer, sheet_name="Retained Level 1", index=False)
         excluded_companies.to_excel(writer, sheet_name="Excluded Level 1", index=False)
         level2_excluded.to_excel(writer, sheet_name="Excluded Level 2", index=False)
-        level2_retained.to_excel(writer, sheet_name="Retained Final", index=False)
+        level2_retained.to_excel(writer, sheet_name="Retained Level 2", index=False)
     output.seek(0)
     
     return output, stats
