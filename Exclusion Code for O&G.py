@@ -35,6 +35,48 @@ def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_threshol
     
     df.rename(columns=column_mapping, inplace=True, errors='ignore')
     
+    # Keep only required columns
+    required_columns = list(column_mapping.values()) + ["Exclusion Reason"]
+    df = df[list(column_mapping.values())]
+    
+    # Separate companies with no data
+    companies_with_no_data = df[df[list(column_mapping.values())[4:]].isnull().all(axis=1)]
+    df = df.dropna(subset=list(column_mapping.values())[4:], how='all')
+    
+    revenue_columns = list(column_mapping.values())[4:]
+    for col in revenue_columns:
+        df[col] = df[col].astype(str).str.replace('%', '', regex=True).str.replace(',', '', regex=True)
+        df[col] = pd.to_numeric(df[col], errors='coerce')
+    
+    df[revenue_columns] = df[revenue_columns].fillna(0)
+    if df[revenue_columns].max().max() <= 1:
+        df[revenue_columns] = df[revenue_columns] * 100
+    
+    # Calculate total exclusion revenues for selected sectors
+    for key, threshold_data in total_thresholds.items():
+        selected_sectors = threshold_data["sectors"]
+        threshold_value = threshold_data["threshold"]
+        valid_sectors = [sector for sector in selected_sectors if sector in df.columns]
+        if valid_sectors:
+            df[key] = df[valid_sectors].sum(axis=1)
+    
+    # **Apply Level 1 exclusion logic**
+    excluded_reasons = []
+    for index, row in df.iterrows():
+        reasons = []
+        for sector, (exclude, threshold) in sector_exclusions.items():
+            if exclude and (threshold == "" or row[sector] > float(threshold)):
+                reasons.append(f"{sector} Revenue Exceeded")
+        for key, threshold_data in total_thresholds.items():
+            threshold_value = threshold_data["threshold"]
+            if key in df.columns and row[key] > float(threshold_value):
+                reasons.append(f"{key} Revenue Exceeded")
+        excluded_reasons.append(", ".join(reasons) if reasons else "")
+    
+    df["Exclusion Reason"] = excluded_reasons
+    retained_companies = df[df["Exclusion Reason"] == ""]
+    level1_excluded = df[df["Exclusion Reason"] != ""]
+
     # **Level 2 Exclusion Logic**
     level2_excluded = set()
 
@@ -61,39 +103,8 @@ def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_threshol
             level2_excluded.update(midstream_excluded.tolist())
 
     # **Store Level 2 Excluded Companies**
-    level2_excluded_df = df[df["Company"].isin(level2_excluded)]
-    level2_retained_df = df[~df["Company"].isin(level2_excluded)]
-
-    # **Level 1 Exclusion Logic (Same as before)**
-    # Separate companies with no data
-    revenue_columns = list(column_mapping.values())[4:]
-    companies_with_no_data = df[df[revenue_columns].isnull().all(axis=1)]
-    df = df.dropna(subset=revenue_columns, how='all')
-    
-    for col in revenue_columns:
-        df[col] = df[col].astype(str).str.replace('%', '', regex=True).str.replace(',', '', regex=True)
-        df[col] = pd.to_numeric(df[col], errors='coerce')
-    
-    df[revenue_columns] = df[revenue_columns].fillna(0)
-    if df[revenue_columns].max().max() <= 1:
-        df[revenue_columns] = df[revenue_columns] * 100
-    
-    # Level 1 Exclusion: Apply revenue thresholds
-    excluded_reasons = []
-    for index, row in df.iterrows():
-        reasons = []
-        for sector, (exclude, threshold) in sector_exclusions.items():
-            if exclude and (threshold == "" or row[sector] > float(threshold)):
-                reasons.append(f"{sector} Revenue Exceeded")
-        for key, threshold_data in total_thresholds.items():
-            threshold_value = threshold_data["threshold"]
-            if key in df.columns and row[key] > float(threshold_value):
-                reasons.append(f"{key} Revenue Exceeded")
-        excluded_reasons.append(", ".join(reasons) if reasons else "")
-    
-    df["Exclusion Reason"] = excluded_reasons
-    retained_companies = df[df["Exclusion Reason"] == ""]
-    level1_excluded = df[df["Exclusion Reason"] != ""]
+    level2_excluded_df = retained_companies[retained_companies["Company"].isin(level2_excluded)]
+    level2_retained_df = retained_companies[~retained_companies["Company"].isin(level2_excluded)]
 
     # **Save to Excel in memory**
     output = BytesIO()
