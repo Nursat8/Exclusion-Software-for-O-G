@@ -153,6 +153,7 @@ if st.sidebar.button("Run Level 1 Exclusion"):
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
 
+
 import streamlit as st
 import pandas as pd
 import io
@@ -260,8 +261,6 @@ def filter_exclusions_and_retained(upstream_df, midstream_df):
         })
         .reset_index()
     )
-
-    # Create a boolean flag for midstream
     midstream_grouped["Midstream_Exclusion_Flag"] = midstream_grouped.apply(
         has_midstream_expansion, axis=1
     )
@@ -288,7 +287,7 @@ def filter_exclusions_and_retained(upstream_df, midstream_df):
 
     # Build up an exclusion reason text
     reasons = []
-    for idx, row in combined.iterrows():
+    for _, row in combined.iterrows():
         r = []
         if row["Upstream_Exclusion_Flag"]:
             r.append("Upstream - Fossil Fuel Revenue > 0%")
@@ -299,7 +298,6 @@ def filter_exclusions_and_retained(upstream_df, midstream_df):
 
     # --- 5. Split into Excluded / Retained / No Data ---
     # Define "No Data" = not excluded, plus no tickers, empty LEI, and all capacities are 0.
-    # (i.e. effectively blank in both Upstream and Midstream.)
     def is_empty_string_or_nan(val):
         return pd.isna(val) or str(val).strip() == ""
 
@@ -334,6 +332,18 @@ def main():
         excluded_data, retained_data, no_data_data = filter_exclusions_and_retained(
             upstream_df, midstream_df
         )
+
+        # --- Calculate basic statistics ---
+        excluded_count = len(excluded_data)
+        retained_count = len(retained_data)
+        no_data_count = len(no_data_data)
+        total_count = excluded_count + retained_count + no_data_count
+
+        st.markdown("### Statistics")
+        st.write(f"**Total companies:** {total_count}")
+        st.write(f"**Excluded:** {excluded_count}")
+        st.write(f"**Retained:** {retained_count}")
+        st.write(f"**No Data:** {no_data_count}")
 
         st.subheader("Excluded Companies")
         st.dataframe(excluded_data)
