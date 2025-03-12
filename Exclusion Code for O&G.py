@@ -24,6 +24,16 @@ def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_threshol
     upstream_df.columns = upstream_df.columns.map(lambda x: ' '.join(map(str, x)).strip())
     midstream_df.columns = midstream_df.columns.map(lambda x: ' '.join(map(str, x)).strip())
 
+    # **DEBUGGING: Print Column Names to Check Format**
+    print("Midstream Expansion Columns:", midstream_df.columns.tolist())
+
+    # **Ensure 'Company' Column Exists Before Using**
+    company_col = next((col for col in midstream_df.columns if "company" in col.lower()), None)
+    
+    if company_col is None:
+        st.error("The 'Company' column is missing in the Midstream Expansion sheet.")
+        return None, None
+    
     # Column Mapping
     column_mapping = {
         "Company Unnamed: 11_level_1": "Company",
@@ -105,7 +115,7 @@ def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_threshol
         if col in midstream_df.columns:
             midstream_df[col] = midstream_df[col].astype(str).str.replace(',', '', regex=True)
             midstream_df[col] = pd.to_numeric(midstream_df[col], errors='coerce')
-            midstream_excluded = midstream_df[midstream_df[col] > 0]["Company"]
+            midstream_excluded = midstream_df[midstream_df[col] > 0][company_col]
             level2_excluded.update(midstream_excluded.tolist())
 
     # **Store Level 2 Excluded Companies**
@@ -130,32 +140,3 @@ def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_threshol
         "Retained Companies (After Level 2)": len(level2_retained_df),
         "Companies with No Data": len(companies_with_no_data)
     }
-
-# **Streamlit UI**
-st.title("Company Revenue Filter")
-st.write("Upload an Excel file and set exclusion thresholds.")
-
-uploaded_file = st.file_uploader("Upload Excel file", type=["xlsx"])
-
-st.sidebar.header("Set Exclusion Criteria")
-
-sector_exclusions = {
-    name: (st.sidebar.checkbox(f"Exclude {name}", value=False), 
-           st.sidebar.text_input(f"{name} Revenue Threshold (%)", ""))
-    for name in [
-        "Fracking Revenue", "Tar Sand Revenue", "Coalbed Methane Revenue",
-        "Extra Heavy Oil Revenue", "Ultra Deepwater Revenue", "Arctic Revenue",
-        "Unconventional Production Revenue"
-    ]
-}
-
-st.sidebar.header("Set Multiple Custom Total Revenue Thresholds")
-total_thresholds = {
-    f"Custom Total Revenue {i+1}": {
-        "sectors": st.sidebar.multiselect(f"Select Sectors for Custom Threshold {i+1}", list(sector_exclusions.keys())),
-        "threshold": st.sidebar.text_input(f"Total Revenue Threshold {i+1} (%)", "")
-    } for i in range(st.sidebar.number_input("Number of Custom Total Thresholds", min_value=1, max_value=5, value=1))
-}
-
-if st.sidebar.button("Run Filtering Process"):
-    filter_companies_by_revenue(uploaded_file, sector_exclusions, total_thresholds)
