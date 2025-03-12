@@ -3,11 +3,20 @@ import pandas as pd
 import io
 
 def load_data(file, sheet_name, header_row):
-    return pd.read_excel(file, sheet_name=sheet_name, header=4)  # Adjusted to match row 5 where data starts
+    return pd.read_excel(file, sheet_name=sheet_name, header=3)  # Adjusted to row 4 based on analysis
 
 def level1_exclusion(df):
-    # Define Level 1 exclusion criteria (example criteria, adjust as needed)
-    level1_criteria = (df["Fossil Fuel Share of Revenue"] > 50)  # Exclude if fossil fuel share > 50%
+    # Select relevant columns using index positions
+    df = df.iloc[:, [6, 27, 42, 46]]  # Company, Fossil Fuel Share of Revenue, ISIN, LEI
+    df.columns = ["Company", "Fossil Fuel Share of Revenue", "ISIN Equity", "LEI"]
+    
+    # Convert Fossil Fuel Share of Revenue to numeric
+    df["Fossil Fuel Share of Revenue"] = pd.to_numeric(
+        df["Fossil Fuel Share of Revenue"].astype(str).str.replace('%', ''), errors='coerce'
+    ).fillna(0)  # Replace NaN with 0
+    
+    # Define Level 1 exclusion criteria (example: exclude if fossil fuel share > 50%)
+    level1_criteria = df["Fossil Fuel Share of Revenue"] > 50
     
     # Mark exclusion reason
     df["Exclusion Reason"] = ""
@@ -21,10 +30,10 @@ def level1_exclusion(df):
 
 def level2_exclusion(upstream_df, midstream_df):
     # Select correct columns using index positions
-    upstream_df = upstream_df.iloc[:, [5, 27, 41, 42, 46]]  # Company, AB, AP, AQ, AU
-    upstream_df.columns = ["Company", "Fossil Fuel Share of Revenue", "BB Ticker", "ISIN Equity", "LEI"]
+    upstream_df = upstream_df.iloc[:, [6, 27, 42, 46]]  # Company, Fossil Fuel Share of Revenue, ISIN, LEI
+    upstream_df.columns = ["Company", "Fossil Fuel Share of Revenue", "ISIN Equity", "LEI"]
     
-    midstream_df = midstream_df.iloc[:, [5, 8, 9, 10, 11]]  # Company, I, J, K, L
+    midstream_df = midstream_df.iloc[:, [6, 8, 9, 10, 11]]  # Company, I, J, K, L
     midstream_df.columns = [
         "Company",
         "Length of Pipelines under Development",
@@ -33,7 +42,7 @@ def level2_exclusion(upstream_df, midstream_df):
         "Total Capacity under Development"
     ]
     
-    # Convert Fossil Fuel Share of Revenue to numeric, handling errors
+    # Convert Fossil Fuel Share of Revenue to numeric
     upstream_df["Fossil Fuel Share of Revenue"] = pd.to_numeric(
         upstream_df["Fossil Fuel Share of Revenue"].astype(str).str.replace('%', ''), errors='coerce'
     ).fillna(0)  # Replace NaN with 0
@@ -50,13 +59,13 @@ def level2_exclusion(upstream_df, midstream_df):
     
     # Separate excluded and retained companies
     excluded_level2 = pd.concat([
-        upstream_df.loc[upstream_exclusion, ["Company", "BB Ticker", "ISIN Equity", "LEI", "Fossil Fuel Share of Revenue", "Exclusion Reason"]],
-        midstream_df.loc[midstream_exclusion, ["Company", "Exclusion Reason", "Length of Pipelines under Development", "Liquefaction Capacity (Export)", "Regasification Capacity (Import)", "Total Capacity under Development"]]
+        upstream_df.loc[upstream_exclusion, :],
+        midstream_df.loc[midstream_exclusion, :]
     ], ignore_index=True)
     
     retained_level2 = pd.concat([
-        upstream_df.loc[~upstream_exclusion, ["Company", "BB Ticker", "ISIN Equity", "LEI", "Fossil Fuel Share of Revenue"]],
-        midstream_df.loc[~midstream_exclusion, ["Company", "Length of Pipelines under Development", "Liquefaction Capacity (Export)", "Regasification Capacity (Import)", "Total Capacity under Development"]]
+        upstream_df.loc[~upstream_exclusion, :],
+        midstream_df.loc[~midstream_exclusion, :]
     ], ignore_index=True)
     
     return excluded_level2, retained_level2
@@ -66,8 +75,8 @@ def main():
     uploaded_file = st.file_uploader("Upload the Excel file", type=["xlsx"])
     
     if uploaded_file is not None:
-        upstream_df = load_data(uploaded_file, sheet_name="Upstream", header_row=4)
-        midstream_df = load_data(uploaded_file, sheet_name="Midstream Expansion", header_row=4)
+        upstream_df = load_data(uploaded_file, sheet_name="Upstream", header_row=3)
+        midstream_df = load_data(uploaded_file, sheet_name="Midstream Expansion", header_row=3)
         
         # Apply Level 1 exclusion
         excluded_level1, retained_level1 = level1_exclusion(upstream_df)
