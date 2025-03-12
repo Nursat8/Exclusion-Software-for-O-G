@@ -100,7 +100,7 @@ def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_threshol
     }
 
 # Streamlit UI
-st.title("Company Revenue Filter")
+st.title("Level 1 Exclusion Filter")
 st.write("Upload an Excel file and set exclusion thresholds.")
 
 uploaded_file = st.file_uploader("Upload Excel file", type=["xlsx"])
@@ -133,7 +133,7 @@ for i in range(num_custom_thresholds):
     if selected_sectors and total_threshold:
         total_thresholds[f"Custom Total Revenue {i+1}"] = {"sectors": selected_sectors, "threshold": total_threshold}
 
-if st.sidebar.button("Run Filtering Process"):
+if st.sidebar.button("Run Level 1 Exclusion"):
     if uploaded_file:
         filtered_output, stats = filter_companies_by_revenue(uploaded_file, sector_exclusions, total_thresholds)
         
@@ -149,7 +149,7 @@ if st.sidebar.button("Run Filtering Process"):
             st.download_button(
                 label="Download Filtered Excel",
                 data=filtered_output,
-                file_name="filtered_companies.xlsx",
+                file_name="O&G Companies Level 1 Exclusion.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
 
@@ -356,7 +356,7 @@ def main():
         st.download_button(
             "Download Exclusion & Retention & NoData List",
             output,
-            "excluded_retained_nodata_companies.xlsx",
+            "O&G companies Level 2 Exclusion.xlsx",
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
 
