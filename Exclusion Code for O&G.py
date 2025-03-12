@@ -35,7 +35,7 @@ def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_threshol
     
     df.rename(columns=column_mapping, inplace=True, errors='ignore')
     
-    # Level 2 Exclusion Criteria
+    # **Level 2 Exclusion Logic**
     level2_excluded = set()
 
     # **Exclude companies from Upstream with fossil fuel share of revenue > 0%**
@@ -64,6 +64,7 @@ def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_threshol
     level2_excluded_df = df[df["Company"].isin(level2_excluded)]
     level2_retained_df = df[~df["Company"].isin(level2_excluded)]
 
+    # **Level 1 Exclusion Logic (Same as before)**
     # Separate companies with no data
     revenue_columns = list(column_mapping.values())[4:]
     companies_with_no_data = df[df[revenue_columns].isnull().all(axis=1)]
@@ -93,8 +94,8 @@ def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_threshol
     df["Exclusion Reason"] = excluded_reasons
     retained_companies = df[df["Exclusion Reason"] == ""]
     level1_excluded = df[df["Exclusion Reason"] != ""]
-    
-    # Save to Excel in memory
+
+    # **Save to Excel in memory**
     output = BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         retained_companies.to_excel(writer, sheet_name="Retained Companies", index=False)
