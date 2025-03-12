@@ -153,6 +153,10 @@ if st.sidebar.button("Run Filtering Process"):
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
 
+import streamlit as st
+import pandas as pd
+import io
+
 def load_data(file, sheet_name, header_row):
     """Load Excel data starting from the given header row (0-based)."""
     return pd.read_excel(file, sheet_name=sheet_name, header=header_row)
@@ -164,7 +168,7 @@ def filter_exclusions_and_retained(upstream_df, midstream_df):
        in Upstream or Midstream.
     3) Combine the data into one DataFrame with columns indicating
        whether the company is excluded by Upstream or Midstream criteria.
-    4) Create Exclusion Reason and split into 'Excluded' vs 'Retained'.
+    4) Create Exclusion Reason and split into 'Excluded' vs 'Retained' vs 'No Data'.
     """
 
     # --- 1. Rename columns and select relevant ones ---
@@ -208,7 +212,9 @@ def filter_exclusions_and_retained(upstream_df, midstream_df):
         "Total Capacity under Development"
     ]
     for col in numeric_cols:
-        midstream_subset[col] = pd.to_numeric(midstream_subset[col], errors='coerce').fillna(0)
+        midstream_subset[col] = pd.to_numeric(
+            midstream_subset[col], errors='coerce'
+        ).fillna(0)
 
     # --- 2. Determine Upstream/Midstream flags at the "Company" level ---
 
@@ -217,8 +223,7 @@ def filter_exclusions_and_retained(upstream_df, midstream_df):
         unique_vals = series.dropna().unique().tolist()
         return ", ".join(map(str, unique_vals)) if unique_vals else ""
 
-    # Upstream criterion: Fossil Fuel Share of Revenue > 0
-    # We'll group by company and see if ANY row for that company has > 0.
+    # Upstream criterion: any row for that company has Fossil Fuel Revenue > 0
     upstream_grouped = (
         upstream_subset
         .groupby("Company", dropna=False)  # keep all company names
@@ -264,18 +269,22 @@ def filter_exclusions_and_retained(upstream_df, midstream_df):
     # --- 3. Combine (merge) upstream+midstream groupings by company ---
 
     combined = pd.merge(
-        upstream_grouped, midstream_grouped,
-        on="Company", how="outer"  # full outer join so we don't lose any companies
+        upstream_grouped,
+        midstream_grouped,
+        on="Company",
+        how="outer"  # full outer join so we don't lose any companies
     )
 
-    # Fill NaN in boolean flags with False
+    # If a company was not in Upstream or Midstream, fill missing booleans with False
     combined["Upstream_Exclusion_Flag"] = combined["Upstream_Exclusion_Flag"].fillna(False)
     combined["Midstream_Exclusion_Flag"] = combined["Midstream_Exclusion_Flag"].fillna(False)
 
     # --- 4. Determine final exclusion and reason ---
 
     # Exclude if Upstream_Exclusion_Flag == True OR Midstream_Exclusion_Flag == True
-    combined["Excluded"] = combined["Upstream_Exclusion_Flag"] | combined["Midstream_Exclusion_Flag"]
+    combined["Excluded"] = (
+        combined["Upstream_Exclusion_Flag"] | combined["Midstream_Exclusion_Flag"]
+    )
 
     # Build up an exclusion reason text
     reasons = []
@@ -288,23 +297,43 @@ def filter_exclusions_and_retained(upstream_df, midstream_df):
         reasons.append("; ".join(r))
     combined["Exclusion Reason"] = reasons
 
-    # Create final subsets
-    excluded_companies = combined[combined["Excluded"]].copy()
-    retained_companies = combined[~combined["Excluded"]].copy()
+    # --- 5. Split into Excluded / Retained / No Data ---
+    # Define "No Data" = not excluded, plus no tickers, empty LEI, and all capacities are 0.
+    # (i.e. effectively blank in both Upstream and Midstream.)
+    def is_empty_string_or_nan(val):
+        return pd.isna(val) or str(val).strip() == ""
 
-    return excluded_companies, retained_companies
+    no_data_cond = (
+        (~combined["Excluded"])  # must not be excluded
+        & combined["BB Ticker"].apply(is_empty_string_or_nan)
+        & combined["ISIN Equity"].apply(is_empty_string_or_nan)
+        & combined["LEI"].apply(is_empty_string_or_nan)
+        & (combined["Length of Pipelines under Development"] == 0)
+        & (combined["Liquefaction Capacity (Export)"] == 0)
+        & (combined["Regasification Capacity (Import)"] == 0)
+        & (combined["Total Capacity under Development"] == 0)
+    )
+
+    # Subset data
+    no_data_companies = combined[no_data_cond].copy()
+    excluded_companies = combined[combined["Excluded"]].copy()
+    retained_companies = combined[~combined["Excluded"] & ~no_data_cond].copy()
+
+    return excluded_companies, retained_companies, no_data_companies
 
 def main():
     st.title("Level 2 Exclusion Filter")
     uploaded_file = st.file_uploader("Upload the Excel file", type=["xlsx"])
 
     if uploaded_file is not None:
-        # Load Upstream / Midstream with correct header row
+        # Load Upstream / Midstream with correct header row (row 4 => 0-based indexing)
         upstream_df = load_data(uploaded_file, sheet_name="Upstream", header_row=4)
         midstream_df = load_data(uploaded_file, sheet_name="Midstream Expansion", header_row=4)
 
-        # Get excluded vs retained data
-        excluded_data, retained_data = filter_exclusions_and_retained(upstream_df, midstream_df)
+        # Get excluded vs retained vs no data
+        excluded_data, retained_data, no_data_data = filter_exclusions_and_retained(
+            upstream_df, midstream_df
+        )
 
         st.subheader("Excluded Companies")
         st.dataframe(excluded_data)
@@ -312,18 +341,22 @@ def main():
         st.subheader("Retained Companies")
         st.dataframe(retained_data)
 
-        # Save the output as an Excel file with 2 sheets
+        st.subheader("No Data Companies")
+        st.dataframe(no_data_data)
+
+        # Save the output as an Excel file with 3 sheets
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
             excluded_data.to_excel(writer, index=False, sheet_name='Exclusions')
             retained_data.to_excel(writer, index=False, sheet_name='Retained')
+            no_data_data.to_excel(writer, index=False, sheet_name='No Data')
         output.seek(0)
 
         # Provide download option
         st.download_button(
-            "Download Exclusion & Retention List",
+            "Download Exclusion & Retention & NoData List",
             output,
-            "excluded_and_retained_companies.xlsx",
+            "excluded_retained_nodata_companies.xlsx",
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
 
