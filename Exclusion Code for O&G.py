@@ -2,14 +2,14 @@ import streamlit as st
 import pandas as pd
 
 def load_data(file, sheet_name, header_row):
-    return pd.read_excel(file, sheet_name=sheet_name, header=6)  # Data starts from row 7
+    return pd.read_excel(file, sheet_name=sheet_name, header=4)  # Adjusted to match row 5 where data starts
 
 def filter_exclusions(upstream_df, midstream_df):
     # Select correct columns using index positions
-    upstream_df = upstream_df.iloc[:, [27, 40, 42, 46]]  # Columns AB, AO, AQ, AU
+    upstream_df = upstream_df.iloc[:, [27, 41, 42, 46]]  # AB, AP, AQ, AU
     upstream_df.columns = ["Fossil Fuel Share of Revenue", "BB Ticker", "ISIN Equity", "LEI"]
     
-    midstream_df = midstream_df.iloc[:, [8, 9, 10, 11]]  # Columns I, J, K, L
+    midstream_df = midstream_df.iloc[:, [8, 9, 10, 11]]  # I, J, K, L
     midstream_df.columns = [
         "Length of Pipelines under Development",
         "Liquefaction Capacity (Export)",
@@ -17,8 +17,13 @@ def filter_exclusions(upstream_df, midstream_df):
         "Total Capacity under Development"
     ]
     
+    # Convert Fossil Fuel Share of Revenue to numeric, handling errors
+    upstream_df["Fossil Fuel Share of Revenue"] = pd.to_numeric(
+        upstream_df["Fossil Fuel Share of Revenue"].astype(str).str.replace('%', ''), errors='coerce'
+    ).fillna(0)  # Replace NaN with 0
+    
     # Identify exclusion criteria
-    upstream_exclusion = upstream_df["Fossil Fuel Share of Revenue"].astype(str).str.replace('%', '').astype(float) > 0
+    upstream_exclusion = upstream_df["Fossil Fuel Share of Revenue"] > 0
     midstream_exclusion = midstream_df.notna().any(axis=1)
     
     # Create exclusion reason
@@ -28,7 +33,10 @@ def filter_exclusions(upstream_df, midstream_df):
     midstream_df.loc[midstream_exclusion, "Exclusion Reason"] = "Midstream Expansion - Capacity in Development"
     
     # Combine data
-    excluded_companies = pd.concat([upstream_df[upstream_exclusion], midstream_df[midstream_exclusion]], ignore_index=True)
+    excluded_companies = pd.concat([
+        upstream_df.loc[upstream_exclusion, ["BB Ticker", "ISIN Equity", "LEI", "Exclusion Reason"]],
+        midstream_df.loc[midstream_exclusion]
+    ], ignore_index=True)
     
     return excluded_companies
 
@@ -37,8 +45,8 @@ def main():
     uploaded_file = st.file_uploader("Upload the Excel file", type=["xlsx"])
     
     if uploaded_file is not None:
-        upstream_df = load_data(uploaded_file, sheet_name="Upstream", header_row=6)
-        midstream_df = load_data(uploaded_file, sheet_name="Midstream Expansion", header_row=6)
+        upstream_df = load_data(uploaded_file, sheet_name="Upstream", header_row=4)
+        midstream_df = load_data(uploaded_file, sheet_name="Midstream Expansion", header_row=4)
         
         excluded_data = filter_exclusions(upstream_df, midstream_df)
         
