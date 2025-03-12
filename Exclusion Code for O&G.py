@@ -124,3 +124,39 @@ def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_threshol
         "Retained Companies (After Level 2)": len(level2_retained_df),
         "Companies with No Data": len(companies_with_no_data)
     }
+
+# **Streamlit UI (Untouched)**
+st.title("Company Revenue Filter")
+st.write("Upload an Excel file and set exclusion thresholds.")
+
+uploaded_file = st.file_uploader("Upload Excel file", type=["xlsx"])
+
+st.sidebar.header("Set Exclusion Criteria")
+
+def sector_exclusion_input(sector_name):
+    exclude = st.sidebar.checkbox(f"Exclude {sector_name}", value=False)
+    threshold = ""
+    if exclude:
+        threshold = st.sidebar.text_input(f"{sector_name} Revenue Threshold (%)", "")
+    return sector_name, (exclude, threshold)
+
+sector_exclusions = dict([
+    sector_exclusion_input("Fracking Revenue"),
+    sector_exclusion_input("Tar Sand Revenue"),
+    sector_exclusion_input("Coalbed Methane Revenue"),
+    sector_exclusion_input("Extra Heavy Oil Revenue"),
+    sector_exclusion_input("Ultra Deepwater Revenue"),
+    sector_exclusion_input("Arctic Revenue"),
+    sector_exclusion_input("Unconventional Production Revenue")
+])
+
+st.sidebar.header("Set Multiple Custom Total Revenue Thresholds")
+total_thresholds = {}
+num_custom_thresholds = st.sidebar.number_input("Number of Custom Total Thresholds", min_value=1, max_value=5, value=1)
+for i in range(num_custom_thresholds):
+    selected_sectors = st.sidebar.multiselect(f"Select Sectors for Custom Threshold {i+1}", list(sector_exclusions.keys()), key=f"sectors_{i}")
+    total_threshold = st.sidebar.text_input(f"Total Revenue Threshold {i+1} (%)", "", key=f"threshold_{i}")
+    if selected_sectors and total_threshold:
+        total_thresholds[f"Custom Total Revenue {i+1}"] = {"sectors": selected_sectors, "threshold": total_threshold}
+
+st.sidebar.button("Run Filtering Process")
