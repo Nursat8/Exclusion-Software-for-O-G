@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 from io import BytesIO
 
-def filter_companies_by_revenue(uploaded_file, tar_sand_threshold, arctic_threshold, coalbed_threshold, total_threshold):
+def filter_companies_by_revenue(uploaded_file, tar_sand_threshold, arctic_threshold, coalbed_threshold, total_threshold, enable_exclusion):
     if uploaded_file is None:
         return None, None
     
@@ -31,7 +31,8 @@ def filter_companies_by_revenue(uploaded_file, tar_sand_threshold, arctic_thresh
     required_columns = list(column_mapping.values()) + ["Exclusion Reason"]
     df = df[list(column_mapping.values())]
     
-    # Remove companies with no data (empty cells in exclusion-related columns)
+    # Separate companies with no data
+    companies_with_no_data = df[df[["Tar Sand Revenue", "Arctic Revenue", "Coalbed Methane Revenue"]].isnull().all(axis=1)]
     df = df.dropna(subset=["Tar Sand Revenue", "Arctic Revenue", "Coalbed Methane Revenue"], how='all')
     
     revenue_columns = ["Tar Sand Revenue", "Arctic Revenue", "Coalbed Methane Revenue"]
@@ -60,24 +61,32 @@ def filter_companies_by_revenue(uploaded_file, tar_sand_threshold, arctic_thresh
         excluded_reasons.append(", ".join(reasons) if reasons else "")
     
     df["Exclusion Reason"] = excluded_reasons
-    retained_companies = df[df["Exclusion Reason"] == ""]
-    excluded_companies = df[df["Exclusion Reason"] != ""]
+    
+    if enable_exclusion:
+        retained_companies = df[df["Exclusion Reason"] == ""]
+        excluded_companies = df[df["Exclusion Reason"] != ""]
+    else:
+        retained_companies = df.copy()
+        excluded_companies = pd.DataFrame()
     
     # Remove unnecessary columns from output
     retained_companies = retained_companies[required_columns]
     excluded_companies = excluded_companies[required_columns]
+    companies_with_no_data = companies_with_no_data[required_columns]
     
     # Save to Excel in memory
     output = BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         retained_companies.to_excel(writer, sheet_name="Retained Companies", index=False)
         excluded_companies.to_excel(writer, sheet_name="Excluded Companies", index=False)
+        companies_with_no_data.to_excel(writer, sheet_name="No Data Companies", index=False)
     output.seek(0)
     
     return output, {
-        "Total Companies": len(df),
+        "Total Companies": len(df) + len(companies_with_no_data),
         "Retained Companies": len(retained_companies),
-        "Excluded Companies": len(excluded_companies)
+        "Excluded Companies": len(excluded_companies),
+        "Companies with No Data": len(companies_with_no_data)
     }
 
 # Streamlit UI
@@ -98,9 +107,12 @@ arctic_threshold = float(arctic_threshold) if arctic_threshold else 20
 coalbed_threshold = float(coalbed_threshold) if coalbed_threshold else 20
 total_threshold = float(total_threshold) if total_threshold else 20
 
+# Checkbox to enable/disable exclusion
+enable_exclusion = st.sidebar.checkbox("Enable Exclusion", value=True)
+
 if st.sidebar.button("Run Filtering Process"):
     if uploaded_file:
-        filtered_output, stats = filter_companies_by_revenue(uploaded_file, tar_sand_threshold, arctic_threshold, coalbed_threshold, total_threshold)
+        filtered_output, stats = filter_companies_by_revenue(uploaded_file, tar_sand_threshold, arctic_threshold, coalbed_threshold, total_threshold, enable_exclusion)
         
         if filtered_output:
             st.success("File processed successfully!")
