@@ -125,7 +125,7 @@ def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_threshol
         "Companies with No Data": len(companies_with_no_data)
     }
 
-# **Streamlit UI (Untouched)**
+# **Streamlit UI (Fix: Run Filtering Process)**
 st.title("Company Revenue Filter")
 st.write("Upload an Excel file and set exclusion thresholds.")
 
@@ -159,4 +159,5 @@ for i in range(num_custom_thresholds):
     if selected_sectors and total_threshold:
         total_thresholds[f"Custom Total Revenue {i+1}"] = {"sectors": selected_sectors, "threshold": total_threshold}
 
-st.sidebar.button("Run Filtering Process")
+if st.sidebar.button("Run Filtering Process"):
+    filtered_output, stats = filter_companies_by_revenue(uploaded_file, sector_exclusions, total_thresholds)
