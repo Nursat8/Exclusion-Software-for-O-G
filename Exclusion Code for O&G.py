@@ -3,10 +3,7 @@ import pandas as pd
 import numpy as np
 from io import BytesIO
 
-def filter_companies_by_revenue(uploaded_file, tar_sand_exclude, tar_sand_threshold,
-                                arctic_exclude, arctic_threshold,
-                                coalbed_exclude, coalbed_threshold,
-                                total_exclude, total_threshold):
+def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_thresholds):
     if uploaded_file is None:
         return None, None
     
@@ -23,9 +20,13 @@ def filter_companies_by_revenue(uploaded_file, tar_sand_exclude, tar_sand_thresh
         "Bloomberg BB Ticker": "BB Ticker",
         "ISIN Codes ISIN equity": "ISIN equity",
         "LEI LEI": "LEI",
+        "Unconventionals Fracking": "Fracking Revenue",
         "Unconventionals Tar Sands": "Tar Sand Revenue",
+        "Unconventionals Coalbed Methane": "Coalbed Methane Revenue",
+        "Unconventionals Extra Heavy Oil": "Extra Heavy Oil Revenue",
+        "Unconventionals Ultra Deepwater": "Ultra Deepwater Revenue",
         "Unconventionals Arctic": "Arctic Revenue",
-        "Unconventionals Coalbed Methane": "Coalbed Methane Revenue"
+        "Unconventional Production Unnamed: 25_level_1": "Unconventional Production Revenue"
     }
     
     df.rename(columns=column_mapping, inplace=True, errors='ignore')
@@ -35,10 +36,10 @@ def filter_companies_by_revenue(uploaded_file, tar_sand_exclude, tar_sand_thresh
     df = df[list(column_mapping.values())]
     
     # Separate companies with no data
-    companies_with_no_data = df[df[["Tar Sand Revenue", "Arctic Revenue", "Coalbed Methane Revenue"]].isnull().all(axis=1)]
-    df = df.dropna(subset=["Tar Sand Revenue", "Arctic Revenue", "Coalbed Methane Revenue"], how='all')
+    companies_with_no_data = df[df[list(column_mapping.values())[4:]].isnull().all(axis=1)]
+    df = df.dropna(subset=list(column_mapping.values())[4:], how='all')
     
-    revenue_columns = ["Tar Sand Revenue", "Arctic Revenue", "Coalbed Methane Revenue"]
+    revenue_columns = list(column_mapping.values())[4:]
     for col in revenue_columns:
         df[col] = df[col].astype(str).str.replace('%', '', regex=True).str.replace(',', '', regex=True)
         df[col] = pd.to_numeric(df[col], errors='coerce')
@@ -47,20 +48,20 @@ def filter_companies_by_revenue(uploaded_file, tar_sand_exclude, tar_sand_thresh
     if df[revenue_columns].max().max() <= 1:
         df[revenue_columns] = df[revenue_columns] * 100
     
-    df["Total Exclusion Revenue"] = df[revenue_columns].sum(axis=1)
+    # Calculate total exclusion revenues for selected sectors
+    for key, sectors in total_thresholds.items():
+        df[key] = df[sectors].sum(axis=1)
     
     # Apply exclusion logic per sector
     excluded_reasons = []
     for index, row in df.iterrows():
         reasons = []
-        if tar_sand_exclude and (tar_sand_threshold == "" or row["Tar Sand Revenue"] > float(tar_sand_threshold)):
-            reasons.append("Tar Sand Revenue Exceeded")
-        if arctic_exclude and (arctic_threshold == "" or row["Arctic Revenue"] > float(arctic_threshold)):
-            reasons.append("Arctic Revenue Exceeded")
-        if coalbed_exclude and (coalbed_threshold == "" or row["Coalbed Methane Revenue"] > float(coalbed_threshold)):
-            reasons.append("Coalbed Methane Revenue Exceeded")
-        if total_exclude and (total_threshold == "" or row["Total Exclusion Revenue"] > float(total_threshold)):
-            reasons.append("Total Exclusion Revenue Exceeded")
+        for sector, (exclude, threshold) in sector_exclusions.items():
+            if exclude and (threshold == "" or row[sector] > float(threshold)):
+                reasons.append(f"{sector} Revenue Exceeded")
+        for key, threshold in total_thresholds.items():
+            if key in df.columns and row[key] > float(threshold):
+                reasons.append(f"{key} Revenue Exceeded")
         excluded_reasons.append(", ".join(reasons) if reasons else "")
     
     df["Exclusion Reason"] = excluded_reasons
@@ -105,20 +106,30 @@ def sector_exclusion_input(sector_name):
     threshold = ""
     if exclude:
         threshold = st.sidebar.text_input(f"{sector_name} Revenue Threshold (%)", "")
-    return exclude, threshold
+    return sector_name, (exclude, threshold)
 
-tar_sand_exclude, tar_sand_threshold = sector_exclusion_input("Tar Sand")
-arctic_exclude, arctic_threshold = sector_exclusion_input("Arctic")
-coalbed_exclude, coalbed_threshold = sector_exclusion_input("Coalbed Methane")
-total_exclude, total_threshold = sector_exclusion_input("Total Revenue")
+sector_exclusions = dict([
+    sector_exclusion_input("Fracking Revenue"),
+    sector_exclusion_input("Tar Sand Revenue"),
+    sector_exclusion_input("Coalbed Methane Revenue"),
+    sector_exclusion_input("Extra Heavy Oil Revenue"),
+    sector_exclusion_input("Ultra Deepwater Revenue"),
+    sector_exclusion_input("Arctic Revenue"),
+    sector_exclusion_input("Unconventional Production Revenue")
+])
+
+st.sidebar.header("Set Total Revenue Thresholds")
+total_thresholds = {}
+if st.sidebar.checkbox("Enable Custom Total Revenue Threshold"):
+    selected_sectors = st.sidebar.multiselect("Select Sectors for Total Threshold", list(sector_exclusions.keys()))
+    total_threshold = st.sidebar.text_input("Total Revenue Threshold (%)", "")
+    if selected_sectors:
+        total_thresholds["Custom Total Revenue"] = selected_sectors
+        total_thresholds["Threshold Value"] = total_threshold
 
 if st.sidebar.button("Run Filtering Process"):
     if uploaded_file:
-        filtered_output, stats = filter_companies_by_revenue(
-            uploaded_file, tar_sand_exclude, tar_sand_threshold,
-            arctic_exclude, arctic_threshold,
-            coalbed_exclude, coalbed_threshold,
-            total_exclude, total_threshold)
+        filtered_output, stats = filter_companies_by_revenue(uploaded_file, sector_exclusions, total_thresholds)
         
         if filtered_output:
             st.success("File processed successfully!")
