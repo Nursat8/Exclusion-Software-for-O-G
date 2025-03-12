@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
+import io
 from io import BytesIO
 
 def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_thresholds):
