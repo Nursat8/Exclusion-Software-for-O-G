@@ -49,8 +49,10 @@ def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_threshol
         df[revenue_columns] = df[revenue_columns] * 100
     
     # Calculate total exclusion revenues for selected sectors
-    for key, sectors in total_thresholds.items():
-        df[key] = df[sectors].sum(axis=1)
+    for key, selected_sectors in total_thresholds.items():
+        valid_sectors = [sector for sector in selected_sectors if sector in df.columns]
+        if valid_sectors:
+            df[key] = df[valid_sectors].sum(axis=1)
     
     # Apply exclusion logic per sector
     excluded_reasons = []
@@ -123,7 +125,7 @@ total_thresholds = {}
 if st.sidebar.checkbox("Enable Custom Total Revenue Threshold"):
     selected_sectors = st.sidebar.multiselect("Select Sectors for Total Threshold", list(sector_exclusions.keys()))
     total_threshold = st.sidebar.text_input("Total Revenue Threshold (%)", "")
-    if selected_sectors:
+    if selected_sectors and total_threshold:
         total_thresholds["Custom Total Revenue"] = selected_sectors
         total_thresholds["Threshold Value"] = total_threshold
 
