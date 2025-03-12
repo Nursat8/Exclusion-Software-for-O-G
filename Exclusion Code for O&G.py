@@ -3,7 +3,10 @@ import pandas as pd
 import numpy as np
 from io import BytesIO
 
-def filter_companies_by_revenue(uploaded_file, tar_sand_threshold, arctic_threshold, coalbed_threshold, total_threshold, tar_sand_exclude, arctic_exclude, coalbed_exclude, total_exclude):
+def filter_companies_by_revenue(uploaded_file, tar_sand_exclude, tar_sand_threshold,
+                                arctic_exclude, arctic_threshold,
+                                coalbed_exclude, coalbed_threshold,
+                                total_exclude, total_threshold):
     if uploaded_file is None:
         return None, None
     
@@ -46,17 +49,17 @@ def filter_companies_by_revenue(uploaded_file, tar_sand_threshold, arctic_thresh
     
     df["Total Exclusion Revenue"] = df[revenue_columns].sum(axis=1)
     
-    # Apply separate thresholds for each sector with the option to disable exclusion
+    # Apply exclusion logic per sector
     excluded_reasons = []
     for index, row in df.iterrows():
         reasons = []
-        if tar_sand_exclude and row["Tar Sand Revenue"] > tar_sand_threshold:
+        if tar_sand_exclude and (tar_sand_threshold == "" or row["Tar Sand Revenue"] > float(tar_sand_threshold)):
             reasons.append("Tar Sand Revenue Exceeded")
-        if arctic_exclude and row["Arctic Revenue"] > arctic_threshold:
+        if arctic_exclude and (arctic_threshold == "" or row["Arctic Revenue"] > float(arctic_threshold)):
             reasons.append("Arctic Revenue Exceeded")
-        if coalbed_exclude and row["Coalbed Methane Revenue"] > coalbed_threshold:
+        if coalbed_exclude and (coalbed_threshold == "" or row["Coalbed Methane Revenue"] > float(coalbed_threshold)):
             reasons.append("Coalbed Methane Revenue Exceeded")
-        if total_exclude and row["Total Exclusion Revenue"] > total_threshold:
+        if total_exclude and (total_threshold == "" or row["Total Exclusion Revenue"] > float(total_threshold)):
             reasons.append("Total Exclusion Revenue Exceeded")
         excluded_reasons.append(", ".join(reasons) if reasons else "")
     
@@ -90,27 +93,27 @@ st.write("Upload an Excel file and set exclusion thresholds.")
 
 uploaded_file = st.file_uploader("Upload Excel file", type=["xlsx"])
 
-st.sidebar.header("Set Exclusion Thresholds")
-tar_sand_threshold = st.sidebar.text_input("Tar Sand Revenue Threshold (%)", "20")
-arctic_threshold = st.sidebar.text_input("Arctic Revenue Threshold (%)", "20")
-coalbed_threshold = st.sidebar.text_input("Coalbed Methane Revenue Threshold (%)", "20")
-total_threshold = st.sidebar.text_input("Total Revenue Threshold (%)", "20")
+st.sidebar.header("Set Exclusion Criteria")
 
-# Convert inputs to numeric values
-tar_sand_threshold = float(tar_sand_threshold) if tar_sand_threshold else 20
-arctic_threshold = float(arctic_threshold) if arctic_threshold else 20
-coalbed_threshold = float(coalbed_threshold) if coalbed_threshold else 20
-total_threshold = float(total_threshold) if total_threshold else 20
+def sector_exclusion_input(sector_name):
+    exclude = st.sidebar.checkbox(f"Exclude {sector_name}", value=False)
+    threshold = ""
+    if exclude:
+        threshold = st.sidebar.text_input(f"{sector_name} Revenue Threshold (%)", "")
+    return exclude, threshold
 
-# Checkboxes to enable/disable exclusion for each sector
-tar_sand_exclude = st.sidebar.checkbox("Exclude Tar Sand Companies", value=True)
-arctic_exclude = st.sidebar.checkbox("Exclude Arctic Companies", value=True)
-coalbed_exclude = st.sidebar.checkbox("Exclude Coalbed Methane Companies", value=True)
-total_exclude = st.sidebar.checkbox("Exclude Based on Total Revenue", value=True)
+tar_sand_exclude, tar_sand_threshold = sector_exclusion_input("Tar Sand")
+arctic_exclude, arctic_threshold = sector_exclusion_input("Arctic")
+coalbed_exclude, coalbed_threshold = sector_exclusion_input("Coalbed Methane")
+total_exclude, total_threshold = sector_exclusion_input("Total Revenue")
 
 if st.sidebar.button("Run Filtering Process"):
     if uploaded_file:
-        filtered_output, stats = filter_companies_by_revenue(uploaded_file, tar_sand_threshold, arctic_threshold, coalbed_threshold, total_threshold, tar_sand_exclude, arctic_exclude, coalbed_exclude, total_exclude)
+        filtered_output, stats = filter_companies_by_revenue(
+            uploaded_file, tar_sand_exclude, tar_sand_threshold,
+            arctic_exclude, arctic_threshold,
+            coalbed_exclude, coalbed_threshold,
+            total_exclude, total_threshold)
         
         if filtered_output:
             st.success("File processed successfully!")
