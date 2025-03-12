@@ -10,7 +10,7 @@ def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_threshol
     # Load the Excel file
     xls = pd.ExcelFile(uploaded_file)
     df = xls.parse("All Companies", header=[3, 4])
-
+    
     # Flatten multi-level columns
     df.columns = [' '.join(map(str, col)).strip() for col in df.columns]
 
