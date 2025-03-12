@@ -152,10 +152,6 @@ if st.sidebar.button("Run Filtering Process"):
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
 
-import streamlit as st
-import pandas as pd
-import io
-
 def load_data(file, sheet_name, header_row):
     return pd.read_excel(file, sheet_name=sheet_name, header=4)  # Adjusted to match row 5 where data starts
 
