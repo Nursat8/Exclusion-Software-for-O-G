@@ -88,6 +88,7 @@ def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_threshol
     excluded_companies = excluded_companies[required_columns]
     companies_with_no_data = companies_with_no_data[required_columns]
     
+    # Return dataframes, plus stats
     return (retained_companies, excluded_companies, companies_with_no_data), {
         "Total Companies": len(df) + len(companies_with_no_data),
         "Retained Companies": len(retained_companies),
@@ -138,10 +139,22 @@ for i in range(num_custom_thresholds):
 ############################
 
 def load_data(file, sheet_name, header_row):
-    # We keep this function exactly as is, adjusting row based on snippet requirement
+    # Original snippet function
     return pd.read_excel(file, sheet_name=sheet_name, header=4)
 
 def filter_exclusions(upstream_df, midstream_df):
+    # Check shape to prevent ValueError if columns are missing
+    if upstream_df.shape[1] < 47:
+        raise ValueError(
+            f"Upstream sheet has only {upstream_df.shape[1]} columns. "
+            "Expected at least 47 so we can index [5, 27, 41, 42, 46]."
+        )
+    if midstream_df.shape[1] < 12:
+        raise ValueError(
+            f"Midstream sheet has only {midstream_df.shape[1]} columns. "
+            "Expected at least 12 so we can index [5, 8, 9, 10, 11]."
+        )
+    
     # Select correct columns using index positions
     upstream_df = upstream_df.iloc[:, [5, 27, 41, 42, 46]]  # Company, AB, AP, AQ, AU
     upstream_df.columns = ["Company", "Fossil Fuel Share of Revenue", "BB Ticker", "ISIN Equity", "LEI"]
@@ -186,28 +199,33 @@ def filter_exclusions(upstream_df, midstream_df):
     
     return excluded_companies
 
-########################################################
-# NEW FUNCTION: FULL MERGE FOR LEVEL 2 RETAINED vs. EXCL
-########################################################
+##########################################
+# EXTENDED LOGIC: LEVEL 2 RETAINED + STATS
+##########################################
 
-def process_level2_exclusions(upstream_df, midstream_df):
+def filter_exclusions_with_retained(upstream_df, midstream_df):
     """
-    This function merges Upstream & Midstream data by [Company, BB Ticker, ISIN Equity, LEI],
-    determines if each company is excluded or retained, and returns two DataFrames:
-        1. level2_excluded
-        2. level2_retained
-    based on the logic that:
-    - Upstream is excluded if 'Fossil Fuel Share of Revenue' > 0.
-    - Midstream is excluded if any capacity columns have a non-0, non-null value.
-    - 'Exclusion Reason' merges both possible reasons if they apply.
+    Same logic as snippet's filter_exclusions, but also determine which
+    companies are retained. Then return stats for level 2.
     """
-    # Upstream with consistent columns
-    up = upstream_df.copy()
-    up.columns = ["Company", "Fossil Fuel Share of Revenue", "BB Ticker", "ISIN Equity", "LEI"]
+    # Check shape first
+    if upstream_df.shape[1] < 47:
+        raise ValueError(
+            f"Upstream sheet has only {upstream_df.shape[1]} columns. "
+            "Expected at least 47 so we can index [5, 27, 41, 42, 46]."
+        )
+    if midstream_df.shape[1] < 12:
+        raise ValueError(
+            f"Midstream sheet has only {midstream_df.shape[1]} columns. "
+            "Expected at least 12 so we can index [5, 8, 9, 10, 11]."
+        )
     
-    # Midstream with consistent columns
-    mid = midstream_df.copy()
-    mid.columns = [
+    # Snippet lines
+    upstream_df = upstream_df.iloc[:, [5, 27, 41, 42, 46]]
+    upstream_df.columns = ["Company", "Fossil Fuel Share of Revenue", "BB Ticker", "ISIN Equity", "LEI"]
+    
+    midstream_df = midstream_df.iloc[:, [5, 8, 9, 10, 11]]
+    midstream_df.columns = [
         "Company",
         "Length of Pipelines under Development",
         "Liquefaction Capacity (Export)",
@@ -215,84 +233,110 @@ def process_level2_exclusions(upstream_df, midstream_df):
         "Total Capacity under Development"
     ]
     
-    # Merge on [Company, BB Ticker, ISIN Equity, LEI] if possible, but the original snippet
-    # only has these columns in Upstream. We'll do left merges carefully.
-    # Upstream has [Company, Fossil Fuel..., BB Ticker, ISIN Equity, LEI]
-    # Midstream has [Company, Length..., Liquefaction..., Regasification..., Total...]
-    # We unify them by 'Company' only, or if you truly have BB Ticker, ISIN Equity, LEI in Midstream as well.
-    # The snippet doesn't show that midstream has BB Ticker, ISIN Equity, LEI columns.
-    # => We'll merge only on "Company".
-    # Adjust if your real data also has matching tickers/ISINs:
-    merged = pd.merge(
-        up,
-        mid,
-        on="Company",
-        how="outer",
-        suffixes=("_up", "_mid")
-    )
+    # Convert numeric
+    upstream_df["Fossil Fuel Share of Revenue"] = pd.to_numeric(
+        upstream_df["Fossil Fuel Share of Revenue"].astype(str).str.replace('%', ''),
+        errors='coerce'
+    ).fillna(0)
     
-    # If you do have columns 'BB Ticker','ISIN Equity','LEI' in midstream in real data, you can do:
-    # how="outer", left_on=["Company","BB Ticker","ISIN Equity","LEI"], ...
-    # For demonstration, we'll keep the snippet's structure and rely on 'Company' alone.
+    # Upstream exclusion
+    upstream_exclusion = upstream_df["Fossil Fuel Share of Revenue"] > 0
     
-    # Convert the capacity columns to numeric so we can check > 0
-    capacity_cols = [
+    # Midstream exclusion
+    # If any of [Length..., Liquefaction..., Regasification..., Total Capacity...]
+    # is non-null (notna), we exclude. For numeric safety, convert them to numeric:
+    for c in [
         "Length of Pipelines under Development",
         "Liquefaction Capacity (Export)",
         "Regasification Capacity (Import)",
         "Total Capacity under Development"
-    ]
-    for c in capacity_cols:
-        merged[c] = pd.to_numeric(merged[c], errors="coerce").fillna(0)
+    ]:
+        midstream_df[c] = pd.to_numeric(midstream_df[c], errors='coerce').fillna(0)
     
-    # Convert Fossil Fuel Share of Revenue to numeric
-    merged["Fossil Fuel Share of Revenue"] = pd.to_numeric(
-        merged["Fossil Fuel Share of Revenue"],
-        errors="coerce"
-    ).fillna(0)
+    midstream_exclusion = midstream_df.iloc[:, 1:].apply(lambda row: any(row != 0), axis=1)
     
-    # Exclusion conditions
-    upstream_condition = merged["Fossil Fuel Share of Revenue"] > 0
-    midstream_condition = (
-        (merged["Length of Pipelines under Development"] != 0) |
-        (merged["Liquefaction Capacity (Export)"] != 0) |
-        (merged["Regasification Capacity (Import)"] != 0) |
-        (merged["Total Capacity under Development"] != 0)
+    # Mark exclusion reason
+    upstream_df["Exclusion Reason"] = ""
+    upstream_df.loc[upstream_exclusion, "Exclusion Reason"] = "Upstream - Fossil Fuel Revenue > 0%"
+    
+    midstream_df["Exclusion Reason"] = ""
+    midstream_df.loc[midstream_exclusion, "Exclusion Reason"] = "Midstream Expansion - Capacity in Development"
+    
+    # Merge to find full union of companies (by Company).
+    # If you do have unique IDs like [Company, BB Ticker, ISIN, LEI], you can do multi-column merges.
+    # We'll do a left outer merge on 'Company' from the upstream side for demonstration:
+    merged_df = pd.merge(
+        upstream_df,
+        midstream_df,
+        on="Company",
+        how="outer",
+        suffixes=("_up", "_mid")
+    )
+    # Build final columns (filling if they don't exist):
+    for c in ["BB Ticker", "ISIN Equity", "LEI"]:
+        if c+"_up" in merged_df.columns:
+            merged_df[c] = merged_df[c+"_up"]
+        elif c+"_mid" in merged_df.columns:
+            merged_df[c] = merged_df[c+"_mid"]
+        else:
+            merged_df[c] = np.nan
+    
+    # Combine Exclusion Reason from upstream + midstream if both exist
+    def combine_reasons(r1, r2):
+        # If both are non-empty, join them with comma
+        if r1 and r2:
+            return r1 + ", " + r2
+        elif r1:
+            return r1
+        elif r2:
+            return r2
+        return ""
+    
+    merged_df["Exclusion Reason"] = merged_df.apply(
+        lambda row: combine_reasons(row["Exclusion Reason_up"], row["Exclusion Reason_mid"]), axis=1
     )
     
-    # Build Exclusion Reason
-    reasons = []
-    for idx, row in merged.iterrows():
-        reason_list = []
-        if row["Fossil Fuel Share of Revenue"] > 0:
-            reason_list.append("Upstream - Fossil Fuel Revenue > 0%")
-        # Check if any midstream expansions:
-        if any(row[col] != 0 for col in capacity_cols):
-            reason_list.append("Midstream Expansion - Capacity in Development")
-        reasons.append(", ".join(reason_list) if reason_list else "")
+    # Keep numeric columns from each side:
+    # Upstream: Fossil Fuel Share of Revenue
+    # Midstream: Length..., Liquefaction..., Regasification..., Total...
+    # We'll rename them nicely:
+    merged_df["Fossil Fuel Share of Revenue"] = pd.to_numeric(
+        merged_df["Fossil Fuel Share of Revenue_up"], errors='coerce'
+    ).fillna(0)
     
-    merged["Exclusion Reason"] = reasons
+    # Already numeric from above
+    merged_df["Length of Pipelines under Development"] = merged_df["Length of Pipelines under Development"]
+    merged_df["Liquefaction Capacity (Export)"] = merged_df["Liquefaction Capacity (Export)"]
+    merged_df["Regasification Capacity (Import)"] = merged_df["Regasification Capacity (Import)"]
+    merged_df["Total Capacity under Development"] = merged_df["Total Capacity under Development"]
     
-    # Keep columns: Company, BB Ticker, ISIN Equity, LEI,
-    # Fossil Fuel Share of Revenue, capacity columns, Exclusion Reason
-    # We'll fill BB Ticker, ISIN Equity, LEI from the Upstream side if midstream doesn't have them
+    # Define final columns
     final_cols = [
         "Company", "BB Ticker", "ISIN Equity", "LEI",
-        "Fossil Fuel Share of Revenue"
-    ] + capacity_cols + ["Exclusion Reason"]
+        "Fossil Fuel Share of Revenue",
+        "Length of Pipelines under Development",
+        "Liquefaction Capacity (Export)",
+        "Regasification Capacity (Import)",
+        "Total Capacity under Development",
+        "Exclusion Reason"
+    ]
     
-    # If 'BB Ticker', 'ISIN Equity', 'LEI' don't exist in midstream, that's fine. Already in 'up'.
-    for c in ["BB Ticker", "ISIN Equity", "LEI"]:
-        if c not in merged.columns:
-            merged[c] = np.nan
+    # We rely on the new columns we set or re-labeled
+    final_df = merged_df[final_cols].copy()
     
-    level2_full = merged[final_cols].copy()
+    # Excluded => if Exclusion Reason is not empty
+    excluded_mask = final_df["Exclusion Reason"].str.strip() != ""
+    level2_excluded = final_df[excluded_mask].copy()
+    level2_retained = final_df[~excluded_mask].copy()
     
-    excluded_mask = upstream_condition | midstream_condition
-    level2_excluded = level2_full[excluded_mask].copy()
-    level2_retained = level2_full[~excluded_mask].copy()
-    
-    return level2_excluded, level2_retained
+    # Build stats
+    stats_level2 = {
+        "Total Companies (Level 2)": len(final_df),
+        "Excluded (Level 2)": len(level2_excluded),
+        "Retained (Level 2)": len(level2_retained)
+    }
+    return level2_excluded, level2_retained, stats_level2
+
 
 ############################
 # SINGLE RUN BUTTON LOGIC  #
@@ -311,7 +355,7 @@ if st.sidebar.button("Run Filtering Process"):
         for key, value in stats.items():
             st.write(f"**{key}:** {value}")
         
-        # -- Show DataFrames (Level 1) in the UI (optional) --
+        # Show DataFrames (Level 1) in the UI (optional)
         st.subheader("Level 1: Retained Companies")
         st.dataframe(retained_companies)
         st.subheader("Level 1: Excluded Companies")
@@ -319,44 +363,55 @@ if st.sidebar.button("Run Filtering Process"):
         st.subheader("Level 1: No Data Companies")
         st.dataframe(companies_with_no_data)
         
-        # -- LEVEL 2 FILTERS (Upstream + Midstream) using original snippet logic --
-        # We'll show them, but also produce the new logic with Retained vs. Excluded
-        upstream_df = load_data(uploaded_file, sheet_name="Upstream", header_row=4)
-        midstream_df = load_data(uploaded_file, sheet_name="Midstream Expansion", header_row=4)
-        
-        old_excluded_data = filter_exclusions(upstream_df, midstream_df)
-        st.subheader("Level 2 Excluded Companies (Original Snippet Logic)")
-        st.dataframe(old_excluded_data)
-        
-        # -- NEW LOGIC for FULL MERGE & RETAINED vs EXCLUDED (Level 2) --
-        level2_excluded_data, level2_retained_data = process_level2_exclusions(upstream_df, midstream_df)
-        
-        st.subheader("Level 2 Excluded (Improved Logic)")
-        st.dataframe(level2_excluded_data)
-        
-        st.subheader("Level 2 Retained (Improved Logic)")
-        st.dataframe(level2_retained_data)
-        
-        # -- COMBINE ALL RESULTS INTO A SINGLE EXCEL --
-        output_combined = BytesIO()
-        with pd.ExcelWriter(output_combined, engine='xlsxwriter') as writer:
-            # From Level 1
-            retained_companies.to_excel(writer, sheet_name="Retained Companies", index=False)
-            excluded_companies.to_excel(writer, sheet_name="Excluded Companies", index=False)
-            companies_with_no_data.to_excel(writer, sheet_name="No Data Companies", index=False)
+        # -- LEVEL 2 FILTERS (Upstream + Midstream) using snippet logic
+        try:
+            upstream_df = load_data(uploaded_file, sheet_name="Upstream", header_row=4)
+            midstream_df = load_data(uploaded_file, sheet_name="Midstream Expansion", header_row=4)
             
-            # From Level 2 (New Logic)
-            level2_excluded_data.to_excel(writer, sheet_name="Level 2 Excluded", index=False)
-            level2_retained_data.to_excel(writer, sheet_name="Level 2 Retained", index=False)
+            # Original snippet code: shows just the Excluded
+            old_excluded_data = filter_exclusions(upstream_df.copy(), midstream_df.copy())
+            st.subheader("Level 2 Excluded Companies (Original Snippet Logic)")
+            st.dataframe(old_excluded_data)
+            
+            # NEW code: Excluded + Retained + Stats
+            level2_excluded_data, level2_retained_data, stats2 = filter_exclusions_with_retained(
+                upstream_df.copy(),
+                midstream_df.copy()
+            )
+            
+            st.subheader("Level 2 Processing Statistics")
+            for k, v in stats2.items():
+                st.write(f"**{k}:** {v}")
+            
+            st.subheader("Level 2 Excluded (Improved Logic)")
+            st.dataframe(level2_excluded_data)
+            
+            st.subheader("Level 2 Retained (Improved Logic)")
+            st.dataframe(level2_retained_data)
+            
+            # -- COMBINE ALL RESULTS INTO A SINGLE EXCEL --
+            output_combined = BytesIO()
+            with pd.ExcelWriter(output_combined, engine='xlsxwriter') as writer:
+                # From Level 1
+                retained_companies.to_excel(writer, sheet_name="Retained Companies", index=False)
+                excluded_companies.to_excel(writer, sheet_name="Excluded Companies", index=False)
+                companies_with_no_data.to_excel(writer, sheet_name="No Data Companies", index=False)
+                
+                # From Level 2 (New Logic)
+                level2_excluded_data.to_excel(writer, sheet_name="Level 2 Excluded", index=False)
+                level2_retained_data.to_excel(writer, sheet_name="Level 2 Retained", index=False)
+            
+            output_combined.seek(0)
+            
+            # Single Download Button for the Combined File
+            st.download_button(
+                label="Download Combined Excel (Level 1 + 2)",
+                data=output_combined,
+                file_name="all_exclusions.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+        except ValueError as ve:
+            st.error(f"Error with Level 2 data format: {ve}")
         
-        output_combined.seek(0)
-        
-        # Single Download Button for the Combined File
-        st.download_button(
-            label="Download Combined Excel (Level 1 + 2)",
-            data=output_combined,
-            file_name="all_exclusions.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
     else:
         st.error("Please upload an Excel file before running the filtering process.")
