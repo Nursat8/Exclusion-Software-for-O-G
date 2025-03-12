@@ -10,16 +10,12 @@ def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_threshol
     # Load the Excel file
     xls = pd.ExcelFile(uploaded_file)
     df = xls.parse("All Companies", header=[3, 4])
+    upstream_df = xls.parse("Upstream", header=[3, 4])
+    midstream_df = xls.parse("Midstream Expansion", header=[3, 4])
     
     # Flatten multi-level columns
     df.columns = [' '.join(map(str, col)).strip() for col in df.columns]
-    
-    # Load Upstream sheet
-    upstream_df = xls.parse("Upstream", header=[3, 4])
     upstream_df.columns = [' '.join(map(str, col)).strip() for col in upstream_df.columns]
-    
-    # Load Midstream Expansion sheet
-    midstream_df = xls.parse("Midstream Expansion", header=[3, 4])
     midstream_df.columns = [' '.join(map(str, col)).strip() for col in midstream_df.columns]
     
     # Column Mapping
@@ -60,9 +56,8 @@ def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_threshol
             midstream_excluded = midstream_df[midstream_df[col].astype(str).str.replace(',', '', regex=True).astype(float) > 0]["Company"]
             level2_excluded.update(midstream_excluded.tolist())
     
-    # Apply Level 2 Exclusions
+    # Collect Level 2 Excluded Companies
     level2_excluded_df = df[df["Company"].isin(level2_excluded)]
-    df = df[~df["Company"].isin(level2_excluded)]
     
     # Separate companies with no data
     revenue_columns = list(column_mapping.values())[4:]
