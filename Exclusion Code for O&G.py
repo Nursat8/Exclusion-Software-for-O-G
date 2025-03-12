@@ -17,16 +17,9 @@ def filter_companies_by_revenue(uploaded_file, tar_sand_threshold, arctic_thresh
     # Column Mapping
     column_mapping = {
         "Company Unnamed: 11_level_1": "Company",
-        "GOGEL ID Unnamed: 51_level_1": "GOGEL ID",
-        "GCEL ID Unnamed: 52_level_1": "GCEL ID",
-        "Bloomberg BB Company ID": "BB Company ID",
-        "Bloomberg BB ID": "BB ID",
-        "Bloomberg BB FIGI": "BB FIGI",
+        "Bloomberg BB Ticker": "BB Ticker",
         "ISIN Codes ISIN equity": "ISIN equity",
-        "ISIN Codes ISINs bonds": "ISINs bonds",
         "LEI LEI": "LEI",
-        "NACE NACE Classification": "NACE Classification",
-        "NACE NACE Code": "NACE Code",
         "Unconventionals Tar Sands": "Tar Sand Revenue",
         "Unconventionals Arctic": "Arctic Revenue",
         "Unconventionals Coalbed Methane": "Coalbed Methane Revenue",
@@ -41,6 +34,9 @@ def filter_companies_by_revenue(uploaded_file, tar_sand_threshold, arctic_thresh
     required_columns = list(column_mapping.values())
     df = df[required_columns]
     
+    # Remove companies with no data (empty cells)
+    df = df.dropna(how='all')
+    
     revenue_columns = ["Tar Sand Revenue", "Arctic Revenue", "Coalbed Methane Revenue"]
     for col in revenue_columns:
         df[col] = df[col].astype(str).str.replace('%', '', regex=True).str.replace(',', '', regex=True)
@@ -53,15 +49,22 @@ def filter_companies_by_revenue(uploaded_file, tar_sand_threshold, arctic_thresh
     df["Total Exclusion Revenue"] = df[revenue_columns].sum(axis=1)
     
     # Apply separate thresholds for each sector
-    sector_excluded = (
-        (df["Tar Sand Revenue"] > tar_sand_threshold) |
-        (df["Arctic Revenue"] > arctic_threshold) |
-        (df["Coalbed Methane Revenue"] > coalbed_threshold) |
-        (df["Total Exclusion Revenue"] > total_threshold)
-    )
+    excluded_reasons = []
+    for index, row in df.iterrows():
+        reasons = []
+        if row["Tar Sand Revenue"] > tar_sand_threshold:
+            reasons.append("Tar Sand Revenue Exceeded")
+        if row["Arctic Revenue"] > arctic_threshold:
+            reasons.append("Arctic Revenue Exceeded")
+        if row["Coalbed Methane Revenue"] > coalbed_threshold:
+            reasons.append("Coalbed Methane Revenue Exceeded")
+        if row["Total Exclusion Revenue"] > total_threshold:
+            reasons.append("Total Exclusion Revenue Exceeded")
+        excluded_reasons.append(", ".join(reasons) if reasons else "")
     
-    retained_companies = df[~sector_excluded]
-    excluded_companies = df[sector_excluded]
+    df["Exclusion Reason"] = excluded_reasons
+    retained_companies = df[df["Exclusion Reason"] == ""]
+    excluded_companies = df[df["Exclusion Reason"] != ""]
     
     # Level 2 Exclusion
     upstream_exclusion_keywords = ["Conventional Oil & Gas", "Unconventional Oil & Gas"]
@@ -70,27 +73,23 @@ def filter_companies_by_revenue(uploaded_file, tar_sand_threshold, arctic_thresh
         retained_companies["Pipeline Expansion"].notna() |
         retained_companies["LNG Terminal Expansion"].notna()
     ]
-    level2_retained = retained_companies.drop(level2_excluded.index)
-    
-    # Statistics
-    stats = {
-        "Total Companies": len(df),
-        "Retained Companies (Level 1)": len(retained_companies),
-        "Excluded Companies (Level 1)": len(excluded_companies),
-        "Excluded Companies (Level 2)": len(level2_excluded),
-        "Retained Companies (Level 2)": len(level2_retained)
-    }
+    retained_companies = retained_companies.drop(level2_excluded.index)
+    level2_excluded["Exclusion Reason"] = "Upstream/Midstream Expansion"
     
     # Save to Excel in memory
     output = BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-        retained_companies.to_excel(writer, sheet_name="Retained Level 1", index=False)
-        excluded_companies.to_excel(writer, sheet_name="Excluded Level 1", index=False)
+        retained_companies.to_excel(writer, sheet_name="Retained Companies", index=False)
+        excluded_companies.to_excel(writer, sheet_name="Excluded Companies", index=False)
         level2_excluded.to_excel(writer, sheet_name="Excluded Level 2", index=False)
-        level2_retained.to_excel(writer, sheet_name="Retained Level 2", index=False)
     output.seek(0)
     
-    return output, stats
+    return output, {
+        "Total Companies": len(df),
+        "Retained Companies": len(retained_companies),
+        "Excluded Companies (Level 1)": len(excluded_companies),
+        "Excluded Companies (Level 2)": len(level2_excluded)
+    }
 
 # Streamlit UI
 st.title("Company Revenue Filter")
@@ -99,9 +98,9 @@ st.write("Upload an Excel file and set exclusion thresholds.")
 uploaded_file = st.file_uploader("Upload Excel file", type=["xlsx"])
 
 st.sidebar.header("Set Exclusion Thresholds")
-tar_sand_threshold = st.sidebar.text_input("Tar Sand Revenue Threshold (%)")
-arctic_threshold = st.sidebar.text_input("Arctic Revenue Threshold (%)")
-coalbed_threshold = st.sidebar.text_input("Coalbed Methane Revenue Threshold (%)")
+tar_sand_threshold = st.sidebar.text_input("Tar Sand Revenue Threshold (%)", "20")
+arctic_threshold = st.sidebar.text_input("Arctic Revenue Threshold (%)", "20")
+coalbed_threshold = st.sidebar.text_input("Coalbed Methane Revenue Threshold (%)", "20")
 total_threshold = st.sidebar.text_input("Total Revenue Threshold (%)", "20")
 
 # Convert inputs to numeric values
@@ -126,6 +125,6 @@ if st.sidebar.button("Run Filtering Process"):
             st.download_button(
                 label="Download Filtered Excel",
                 data=filtered_output,
-                file_name="Filtered Companies O&G.xlsx",
+                file_name="filtered_companies.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
