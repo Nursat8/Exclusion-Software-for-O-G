@@ -12,12 +12,12 @@ def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_threshol
     df = xls.parse("All Companies", header=[3, 4])
     upstream_df = xls.parse("Upstream", header=[3, 4])
     midstream_df = xls.parse("Midstream Expansion", header=[3, 4])
-    
+
     # Flatten multi-level columns
     df.columns = [' '.join(map(str, col)).strip() for col in df.columns]
     upstream_df.columns = [' '.join(map(str, col)).strip() for col in upstream_df.columns]
     midstream_df.columns = [' '.join(map(str, col)).strip() for col in midstream_df.columns]
-    
+
     # Column Mapping
     column_mapping = {
         "Company Unnamed: 11_level_1": "Company",
@@ -32,26 +32,26 @@ def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_threshol
         "Unconventionals Arctic": "Arctic Revenue",
         "Unconventional Production Unnamed: 25_level_1": "Unconventional Production Revenue"
     }
-    
+
     df.rename(columns=column_mapping, inplace=True, errors='ignore')
-    
+
     # Keep only required columns
     required_columns = list(column_mapping.values()) + ["Exclusion Reason"]
     df = df[list(column_mapping.values())]
-    
+
     # Separate companies with no data
     companies_with_no_data = df[df[list(column_mapping.values())[4:]].isnull().all(axis=1)]
     df = df.dropna(subset=list(column_mapping.values())[4:], how='all')
-    
+
     revenue_columns = list(column_mapping.values())[4:]
     for col in revenue_columns:
         df[col] = df[col].astype(str).str.replace('%', '', regex=True).str.replace(',', '', regex=True)
         df[col] = pd.to_numeric(df[col], errors='coerce')
-    
+
     df[revenue_columns] = df[revenue_columns].fillna(0)
     if df[revenue_columns].max().max() <= 1:
         df[revenue_columns] = df[revenue_columns] * 100
-    
+
     # Calculate total exclusion revenues for selected sectors
     for key, threshold_data in total_thresholds.items():
         selected_sectors = threshold_data["sectors"]
@@ -59,8 +59,8 @@ def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_threshol
         valid_sectors = [sector for sector in selected_sectors if sector in df.columns]
         if valid_sectors:
             df[key] = df[valid_sectors].sum(axis=1)
-    
-    # **Apply Level 1 exclusion logic**
+
+    # Apply Level 1 exclusion logic
     excluded_reasons = []
     for index, row in df.iterrows():
         reasons = []
@@ -72,7 +72,7 @@ def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_threshol
             if key in df.columns and row[key] > float(threshold_value):
                 reasons.append(f"{key} Revenue Exceeded")
         excluded_reasons.append(", ".join(reasons) if reasons else "")
-    
+
     df["Exclusion Reason"] = excluded_reasons
     retained_companies = df[df["Exclusion Reason"] == ""]
     level1_excluded = df[df["Exclusion Reason"] != ""]
@@ -86,7 +86,7 @@ def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_threshol
         upstream_df["Fossil Fuel Share of Revenue"] = pd.to_numeric(upstream_df["Fossil Fuel Share of Revenue"], errors='coerce')
         upstream_excluded = upstream_df[upstream_df["Fossil Fuel Share of Revenue"] > 0]["Company"]
         level2_excluded.update(upstream_excluded.tolist())
-    
+
     # **Exclude companies from Midstream Expansion with any expansion activity**
     midstream_columns = [
         "Pipelines Length of Pipelines under Development",
@@ -94,7 +94,7 @@ def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_threshol
         "Midstream Expansion Regasification Capacity (Import)",
         "Midstream Expansion Total Capacity under Development"
     ]
-    
+
     for col in midstream_columns:
         if col in midstream_df.columns:
             midstream_df[col] = midstream_df[col].astype(str).str.replace(',', '', regex=True)
@@ -115,7 +115,7 @@ def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_threshol
         level2_retained_df.to_excel(writer, sheet_name="Retained Companies (After Level 2)", index=False)
         companies_with_no_data.to_excel(writer, sheet_name="No Data Companies", index=False)
     output.seek(0)
-    
+
     return output, {
         "Total Companies": len(df) + len(companies_with_no_data),
         "Retained Companies": len(retained_companies),
