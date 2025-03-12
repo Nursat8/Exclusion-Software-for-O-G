@@ -11,7 +11,7 @@ def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_threshol
     xls = pd.ExcelFile(uploaded_file)
     df = xls.parse("All Companies", header=[3, 4])
     
-    # Check if Upstream and Midstream Expansion sheets exist before loading
+    # Load Upstream and Midstream Expansion sheets for Level 2 Exclusion
     try:
         upstream_df = xls.parse("Upstream", header=[3, 4])
         midstream_df = xls.parse("Midstream Expansion", header=[3, 4])
@@ -20,20 +20,10 @@ def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_threshol
         return None, None
 
     # Flatten multi-level columns
-    df.columns = df.columns.map(lambda x: ' '.join(map(str, x)).strip())
-    upstream_df.columns = upstream_df.columns.map(lambda x: ' '.join(map(str, x)).strip())
-    midstream_df.columns = midstream_df.columns.map(lambda x: ' '.join(map(str, x)).strip())
+    df.columns = [' '.join(map(str, col)).strip() for col in df.columns]
+    upstream_df.columns = [' '.join(map(str, col)).strip() for col in upstream_df.columns]
+    midstream_df.columns = [' '.join(map(str, col)).strip() for col in midstream_df.columns]
 
-    # **DEBUGGING: Print Column Names to Check Format**
-    print("Midstream Expansion Columns:", midstream_df.columns.tolist())
-
-    # **Ensure 'Company' Column Exists Before Using**
-    company_col = next((col for col in midstream_df.columns if "company" in col.lower()), None)
-    
-    if company_col is None:
-        st.error("The 'Company' column is missing in the Midstream Expansion sheet.")
-        return None, None
-    
     # Column Mapping
     column_mapping = {
         "Company Unnamed: 11_level_1": "Company",
@@ -93,17 +83,17 @@ def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_threshol
     retained_companies = df[df["Exclusion Reason"] == ""]
     level1_excluded = df[df["Exclusion Reason"] != ""]
 
-    # **Level 2 Exclusion Logic**
+    # Level 2 Exclusion Logic
     level2_excluded = set()
 
-    # **Exclude companies from Upstream with fossil fuel share of revenue > 0%**
+    # Exclude companies from Upstream with fossil fuel share of revenue > 0%
     if "Fossil Fuel Share of Revenue" in upstream_df.columns:
         upstream_df["Fossil Fuel Share of Revenue"] = upstream_df["Fossil Fuel Share of Revenue"].astype(str).str.replace('%', '', regex=True)
         upstream_df["Fossil Fuel Share of Revenue"] = pd.to_numeric(upstream_df["Fossil Fuel Share of Revenue"], errors='coerce')
         upstream_excluded = upstream_df[upstream_df["Fossil Fuel Share of Revenue"] > 0]["Company"]
         level2_excluded.update(upstream_excluded.tolist())
 
-    # **Exclude companies from Midstream Expansion with any expansion activity**
+    # Exclude companies from Midstream Expansion with any expansion activity
     midstream_columns = [
         "Pipelines Length of Pipelines under Development",
         "Midstream Expansion Liquefaction Capacity (Export)",
@@ -115,14 +105,14 @@ def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_threshol
         if col in midstream_df.columns:
             midstream_df[col] = midstream_df[col].astype(str).str.replace(',', '', regex=True)
             midstream_df[col] = pd.to_numeric(midstream_df[col], errors='coerce')
-            midstream_excluded = midstream_df[midstream_df[col] > 0][company_col]
+            midstream_excluded = midstream_df[midstream_df[col] > 0]["Company"]
             level2_excluded.update(midstream_excluded.tolist())
 
-    # **Store Level 2 Excluded Companies**
+    # Store Level 2 Excluded Companies
     level2_excluded_df = retained_companies[retained_companies["Company"].isin(level2_excluded)]
     level2_retained_df = retained_companies[~retained_companies["Company"].isin(level2_excluded)]
 
-    # **Save to Excel in memory**
+    # Save to Excel in memory
     output = BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         retained_companies.to_excel(writer, sheet_name="Retained Companies", index=False)
