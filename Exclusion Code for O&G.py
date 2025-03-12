@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 from io import BytesIO
 
-def filter_companies_by_revenue(uploaded_file, tar_sand_threshold, arctic_threshold, coalbed_threshold, total_threshold, enable_exclusion):
+def filter_companies_by_revenue(uploaded_file, tar_sand_threshold, arctic_threshold, coalbed_threshold, total_threshold, tar_sand_exclude, arctic_exclude, coalbed_exclude, total_exclude):
     if uploaded_file is None:
         return None, None
     
@@ -46,28 +46,23 @@ def filter_companies_by_revenue(uploaded_file, tar_sand_threshold, arctic_thresh
     
     df["Total Exclusion Revenue"] = df[revenue_columns].sum(axis=1)
     
-    # Apply separate thresholds for each sector
+    # Apply separate thresholds for each sector with the option to disable exclusion
     excluded_reasons = []
     for index, row in df.iterrows():
         reasons = []
-        if row["Tar Sand Revenue"] > tar_sand_threshold:
+        if tar_sand_exclude and row["Tar Sand Revenue"] > tar_sand_threshold:
             reasons.append("Tar Sand Revenue Exceeded")
-        if row["Arctic Revenue"] > arctic_threshold:
+        if arctic_exclude and row["Arctic Revenue"] > arctic_threshold:
             reasons.append("Arctic Revenue Exceeded")
-        if row["Coalbed Methane Revenue"] > coalbed_threshold:
+        if coalbed_exclude and row["Coalbed Methane Revenue"] > coalbed_threshold:
             reasons.append("Coalbed Methane Revenue Exceeded")
-        if row["Total Exclusion Revenue"] > total_threshold:
+        if total_exclude and row["Total Exclusion Revenue"] > total_threshold:
             reasons.append("Total Exclusion Revenue Exceeded")
         excluded_reasons.append(", ".join(reasons) if reasons else "")
     
     df["Exclusion Reason"] = excluded_reasons
-    
-    if enable_exclusion:
-        retained_companies = df[df["Exclusion Reason"] == ""]
-        excluded_companies = df[df["Exclusion Reason"] != ""]
-    else:
-        retained_companies = df.copy()
-        excluded_companies = pd.DataFrame()
+    retained_companies = df[df["Exclusion Reason"] == ""]
+    excluded_companies = df[df["Exclusion Reason"] != ""]
     
     # Remove unnecessary columns from output
     retained_companies = retained_companies[required_columns]
@@ -107,12 +102,15 @@ arctic_threshold = float(arctic_threshold) if arctic_threshold else 20
 coalbed_threshold = float(coalbed_threshold) if coalbed_threshold else 20
 total_threshold = float(total_threshold) if total_threshold else 20
 
-# Checkbox to enable/disable exclusion
-enable_exclusion = st.sidebar.checkbox("Enable Exclusion", value=True)
+# Checkboxes to enable/disable exclusion for each sector
+tar_sand_exclude = st.sidebar.checkbox("Exclude Tar Sand Companies", value=True)
+arctic_exclude = st.sidebar.checkbox("Exclude Arctic Companies", value=True)
+coalbed_exclude = st.sidebar.checkbox("Exclude Coalbed Methane Companies", value=True)
+total_exclude = st.sidebar.checkbox("Exclude Based on Total Revenue", value=True)
 
 if st.sidebar.button("Run Filtering Process"):
     if uploaded_file:
-        filtered_output, stats = filter_companies_by_revenue(uploaded_file, tar_sand_threshold, arctic_threshold, coalbed_threshold, total_threshold, enable_exclusion)
+        filtered_output, stats = filter_companies_by_revenue(uploaded_file, tar_sand_threshold, arctic_threshold, coalbed_threshold, total_threshold, tar_sand_exclude, arctic_exclude, coalbed_exclude, total_exclude)
         
         if filtered_output:
             st.success("File processed successfully!")
