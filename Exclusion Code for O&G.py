@@ -37,13 +37,15 @@ def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_threshol
     
     # Level 2 Exclusion Criteria
     level2_excluded = set()
-    
-    # Exclude companies in Upstream with fossil fuel share of revenue > 0%
+
+    # **Exclude companies from Upstream with fossil fuel share of revenue > 0%**
     if "Fossil Fuel Share of Revenue" in upstream_df.columns:
-        upstream_excluded = upstream_df[upstream_df["Fossil Fuel Share of Revenue"].astype(str).str.replace('%', '', regex=True).astype(float) > 0]["Company"]
+        upstream_df["Fossil Fuel Share of Revenue"] = upstream_df["Fossil Fuel Share of Revenue"].astype(str).str.replace('%', '', regex=True)
+        upstream_df["Fossil Fuel Share of Revenue"] = pd.to_numeric(upstream_df["Fossil Fuel Share of Revenue"], errors='coerce')
+        upstream_excluded = upstream_df[upstream_df["Fossil Fuel Share of Revenue"] > 0]["Company"]
         level2_excluded.update(upstream_excluded.tolist())
     
-    # Exclude companies in Midstream Expansion with any pipeline or LNG expansion
+    # **Exclude companies from Midstream Expansion with any expansion activity**
     midstream_columns = [
         "Pipelines Length of Pipelines under Development",
         "Midstream Expansion Liquefaction Capacity (Export)",
@@ -53,13 +55,15 @@ def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_threshol
     
     for col in midstream_columns:
         if col in midstream_df.columns:
-            midstream_excluded = midstream_df[midstream_df[col].astype(str).str.replace(',', '', regex=True).astype(float) > 0]["Company"]
+            midstream_df[col] = midstream_df[col].astype(str).str.replace(',', '', regex=True)
+            midstream_df[col] = pd.to_numeric(midstream_df[col], errors='coerce')
+            midstream_excluded = midstream_df[midstream_df[col] > 0]["Company"]
             level2_excluded.update(midstream_excluded.tolist())
-    
-    # Collect Level 2 Excluded Companies
+
+    # **Store Level 2 Excluded Companies**
     level2_excluded_df = df[df["Company"].isin(level2_excluded)]
     level2_retained_df = df[~df["Company"].isin(level2_excluded)]
-    
+
     # Separate companies with no data
     revenue_columns = list(column_mapping.values())[4:]
     companies_with_no_data = df[df[revenue_columns].isnull().all(axis=1)]
@@ -96,7 +100,7 @@ def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_threshol
         retained_companies.to_excel(writer, sheet_name="Retained Companies", index=False)
         level1_excluded.to_excel(writer, sheet_name="Excluded Companies (Level 1)", index=False)
         level2_excluded_df.to_excel(writer, sheet_name="Excluded Companies (Level 2)", index=False)
-        level2_retained_df.to_excel(writer, sheet_name="Retained Companies (Level 2)", index=False)
+        level2_retained_df.to_excel(writer, sheet_name="Retained Companies (After Level 2)", index=False)
         companies_with_no_data.to_excel(writer, sheet_name="No Data Companies", index=False)
     output.seek(0)
     
@@ -105,6 +109,6 @@ def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_threshol
         "Retained Companies": len(retained_companies),
         "Excluded Companies (Level 1)": len(level1_excluded),
         "Excluded Companies (Level 2)": len(level2_excluded_df),
-        "Retained Companies (Level 2)": len(level2_retained_df),
+        "Retained Companies (After Level 2)": len(level2_retained_df),
         "Companies with No Data": len(companies_with_no_data)
     }
