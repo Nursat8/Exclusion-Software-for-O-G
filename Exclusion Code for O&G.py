@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import io
 
 def load_data(file, sheet_name, header_row):
     return pd.read_excel(file, sheet_name=sheet_name, header=4)  # Adjusted to match row 5 where data starts
@@ -53,9 +54,14 @@ def main():
         st.subheader("Excluded Companies")
         st.dataframe(excluded_data)
         
+        # Save the output as an Excel file
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+            excluded_data.to_excel(writer, index=False, sheet_name='Exclusions')
+        output.seek(0)
+        
         # Provide download option
-        csv = excluded_data.to_csv(index=False).encode('utf-8')
-        st.download_button("Download Exclusion List", csv, "excluded_companies.csv", "text/csv")
+        st.download_button("Download Exclusion List", output, "excluded_companies.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
 if __name__ == "__main__":
     main()
