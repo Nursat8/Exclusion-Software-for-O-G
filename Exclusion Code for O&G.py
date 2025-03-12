@@ -282,15 +282,18 @@ def filter_exclusions_with_retained(upstream_df, midstream_df):
             merged_df[c] = np.nan
     
     # Combine Exclusion Reason from upstream + midstream if both exist
+
     def combine_reasons(r1, r2):
-        # If both are non-empty, join them with comma
+        """Safely combine reason strings, handling NaN or None by using empty strings."""
+        # Convert None/NaN to empty string
+        r1 = str(r1) if pd.notna(r1) else ""
+        r2 = str(r2) if pd.notna(r2) else ""
+    
         if r1 and r2:
             return r1 + ", " + r2
-        elif r1:
-            return r1
-        elif r2:
-            return r2
-        return ""
+    else:
+        # Return whichever one isn't blank (or both blank if both are blank)
+        return r1 or r2
     
     merged_df["Exclusion Reason"] = merged_df.apply(
         lambda row: combine_reasons(row["Exclusion Reason_up"], row["Exclusion Reason_mid"]), axis=1
