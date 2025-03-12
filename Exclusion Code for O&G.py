@@ -1,20 +1,17 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
+import io
 from io import BytesIO
 
 def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_thresholds):
     if uploaded_file is None:
         return None, None
     
-    # Load the Excel file
     xls = pd.ExcelFile(uploaded_file)
     df = xls.parse("All Companies", header=[3, 4])
-    
-    # Flatten multi-level columns
     df.columns = [' '.join(map(str, col)).strip() for col in df.columns]
     
-    # Column Mapping
     column_mapping = {
         "Company Unnamed: 11_level_1": "Company",
         "Bloomberg BB Ticker": "BB Ticker",
@@ -30,12 +27,11 @@ def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_threshol
     }
     
     df.rename(columns=column_mapping, inplace=True, errors='ignore')
-    
-    # Keep only required columns
-    required_columns = list(column_mapping.values()) + ["Exclusion Reason"]
     df = df[list(column_mapping.values())]
     
-    # Process revenue columns
+    companies_with_no_data = df[df[list(column_mapping.values())[4:]].isnull().all(axis=1)]
+    df = df.dropna(subset=list(column_mapping.values())[4:], how='all')
+    
     revenue_columns = list(column_mapping.values())[4:]
     for col in revenue_columns:
         df[col] = df[col].astype(str).str.replace('%', '', regex=True).str.replace(',', '', regex=True)
@@ -45,7 +41,6 @@ def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_threshol
     if df[revenue_columns].max().max() <= 1:
         df[revenue_columns] = df[revenue_columns] * 100
     
-    # Calculate total exclusion revenues for selected sectors
     for key, threshold_data in total_thresholds.items():
         selected_sectors = threshold_data["sectors"]
         threshold_value = threshold_data["threshold"]
@@ -53,7 +48,6 @@ def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_threshol
         if valid_sectors:
             df[key] = df[valid_sectors].sum(axis=1)
     
-    # Apply exclusion logic per sector
     excluded_reasons = []
     for index, row in df.iterrows():
         reasons = []
@@ -70,24 +64,22 @@ def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_threshol
     retained_companies = df[df["Exclusion Reason"] == ""]
     excluded_companies = df[df["Exclusion Reason"] != ""]
     
-    return excluded_companies, retained_companies
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        retained_companies.to_excel(writer, sheet_name="Retained Companies", index=False)
+        excluded_companies.to_excel(writer, sheet_name="Excluded Companies", index=False)
+    output.seek(0)
+    
+    return output, df
 
-def level2_exclusion(retained_df, uploaded_file):
-    xls = pd.ExcelFile(uploaded_file)
-    upstream_df = xls.parse("Upstream", header=3)
-    midstream_df = xls.parse("Midstream Expansion", header=3)
-    
-    upstream_df = upstream_df.iloc[:, [6, 27, 42, 46]]
-    upstream_df.columns = ["Company", "Fossil Fuel Share of Revenue", "ISIN Equity", "LEI"]
-    midstream_df = midstream_df.iloc[:, [6, 8, 9, 10, 11]]
+def filter_exclusions(upstream_df, midstream_df):
+    upstream_df = upstream_df.iloc[:, [5, 27, 41, 42, 46]]
+    upstream_df.columns = ["Company", "Fossil Fuel Share of Revenue", "BB Ticker", "ISIN Equity", "LEI"]
+    midstream_df = midstream_df.iloc[:, [5, 8, 9, 10, 11]]
     midstream_df.columns = [
-        "Company",
-        "Length of Pipelines under Development",
-        "Liquefaction Capacity (Export)",
-        "Regasification Capacity (Import)",
-        "Total Capacity under Development"
+        "Company", "Length of Pipelines under Development", "Liquefaction Capacity (Export)", 
+        "Regasification Capacity (Import)", "Total Capacity under Development"
     ]
-    
     upstream_df["Fossil Fuel Share of Revenue"] = pd.to_numeric(
         upstream_df["Fossil Fuel Share of Revenue"].astype(str).str.replace('%', ''), errors='coerce'
     ).fillna(0)
@@ -96,41 +88,30 @@ def level2_exclusion(retained_df, uploaded_file):
     midstream_exclusion = midstream_df.iloc[:, 1:].notna().any(axis=1)
     
     upstream_df["Exclusion Reason"] = ""
-    upstream_df.loc[upstream_exclusion, "Exclusion Reason"] = "Level 2 - Fossil Fuel Revenue > 0%"
+    upstream_df.loc[upstream_exclusion, "Exclusion Reason"] = "Upstream - Fossil Fuel Revenue > 0%"
     midstream_df["Exclusion Reason"] = ""
-    midstream_df.loc[midstream_exclusion, "Exclusion Reason"] = "Level 2 - Midstream Expansion"
+    midstream_df.loc[midstream_exclusion, "Exclusion Reason"] = "Midstream Expansion - Capacity in Development"
     
-    excluded_level2 = pd.concat([
-        upstream_df.loc[upstream_exclusion, :],
-        midstream_df.loc[midstream_exclusion, :]
-    ], ignore_index=True)
-    retained_level2 = pd.concat([
-        upstream_df.loc[~upstream_exclusion, :],
-        midstream_df.loc[~midstream_exclusion, :]
+    excluded_companies = pd.concat([
+        upstream_df.loc[upstream_exclusion, ["Company", "BB Ticker", "ISIN Equity", "LEI", "Exclusion Reason"]],
+        midstream_df.loc[midstream_exclusion, ["Company", "Exclusion Reason"]]
     ], ignore_index=True)
     
-    return excluded_level2, retained_level2
+    return excluded_companies
 
-def process_and_download(uploaded_file, sector_exclusions, total_thresholds):
-    excluded_level1, retained_level1 = filter_companies_by_revenue(uploaded_file, sector_exclusions, total_thresholds)
-    excluded_level2, retained_level2 = level2_exclusion(retained_level1, uploaded_file)
+st.title("Company Revenue & Exclusion Filter")
+uploaded_file = st.file_uploader("Upload Excel file", type=["xlsx"])
+
+if uploaded_file:
+    upstream_df = pd.read_excel(uploaded_file, sheet_name="Upstream", header=4)
+    midstream_df = pd.read_excel(uploaded_file, sheet_name="Midstream Expansion", header=4)
+    level2_exclusions = filter_exclusions(upstream_df, midstream_df)
+    st.subheader("Level 2 Exclusions")
+    st.dataframe(level2_exclusions)
     
-    output = BytesIO()
+    output = io.BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-        excluded_level1.to_excel(writer, sheet_name="Excluded Level 1", index=False)
-        retained_level1.to_excel(writer, sheet_name="Retained 1", index=False)
-        excluded_level2.to_excel(writer, sheet_name="Excluded Level 2", index=False)
-        retained_level2.to_excel(writer, sheet_name="Retained 2", index=False)
+        level2_exclusions.to_excel(writer, sheet_name='Level 2 Exclusions', index=False)
     output.seek(0)
-    return output
-
-if st.sidebar.button("Run Filtering Process"):
-    if uploaded_file:
-        filtered_output = process_and_download(uploaded_file, sector_exclusions, total_thresholds)
-        st.success("File processed successfully!")
-        st.download_button(
-            label="Download Exclusion Report",
-            data=filtered_output,
-            file_name="exclusion_report.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
+    
+    st.download_button("Download Level 2 Exclusions", output, "level2_exclusions.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
