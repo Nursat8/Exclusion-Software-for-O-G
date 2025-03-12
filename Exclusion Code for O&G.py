@@ -10,7 +10,7 @@ def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_threshol
     # Load the Excel file
     xls = pd.ExcelFile(uploaded_file)
     df = xls.parse("All Companies", header=[3, 4])
-    
+
     # Load Upstream and Midstream Expansion sheets for Level 2 Exclusion
     try:
         upstream_df = xls.parse("Upstream", header=[3, 4])
@@ -83,17 +83,17 @@ def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_threshol
     retained_companies = df[df["Exclusion Reason"] == ""]
     level1_excluded = df[df["Exclusion Reason"] != ""]
 
-    # Level 2 Exclusion Logic
+    # === Level 2 Exclusion Logic ===
     level2_excluded = set()
 
-    # Exclude companies from Upstream with fossil fuel share of revenue > 0%
+    # Exclude companies in Upstream with fossil fuel share of revenue > 0%
     if "Fossil Fuel Share of Revenue" in upstream_df.columns:
         upstream_df["Fossil Fuel Share of Revenue"] = upstream_df["Fossil Fuel Share of Revenue"].astype(str).str.replace('%', '', regex=True)
         upstream_df["Fossil Fuel Share of Revenue"] = pd.to_numeric(upstream_df["Fossil Fuel Share of Revenue"], errors='coerce')
         upstream_excluded = upstream_df[upstream_df["Fossil Fuel Share of Revenue"] > 0]["Company"]
         level2_excluded.update(upstream_excluded.tolist())
 
-    # Exclude companies from Midstream Expansion with any expansion activity
+    # Exclude companies in Midstream Expansion with any pipeline or LNG expansion
     midstream_columns = [
         "Pipelines Length of Pipelines under Development",
         "Midstream Expansion Liquefaction Capacity (Export)",
