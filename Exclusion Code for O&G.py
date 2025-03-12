@@ -123,13 +123,14 @@ sector_exclusions = dict([
     sector_exclusion_input("Unconventional Production Revenue")
 ])
 
-st.sidebar.header("Set Total Revenue Thresholds")
+st.sidebar.header("Set Multiple Custom Total Revenue Thresholds")
 total_thresholds = {}
-if st.sidebar.checkbox("Enable Custom Total Revenue Threshold"):
-    selected_sectors = st.sidebar.multiselect("Select Sectors for Total Threshold", list(sector_exclusions.keys()))
-    total_threshold = st.sidebar.text_input("Total Revenue Threshold (%)", "")
+num_custom_thresholds = st.sidebar.number_input("Number of Custom Total Thresholds", min_value=1, max_value=5, value=1)
+for i in range(num_custom_thresholds):
+    selected_sectors = st.sidebar.multiselect(f"Select Sectors for Custom Threshold {i+1}", list(sector_exclusions.keys()), key=f"sectors_{i}")
+    total_threshold = st.sidebar.text_input(f"Total Revenue Threshold {i+1} (%)", "", key=f"threshold_{i}")
     if selected_sectors and total_threshold:
-        total_thresholds["Custom Total Revenue"] = {"sectors": selected_sectors, "threshold": total_threshold}
+        total_thresholds[f"Custom Total Revenue {i+1}"] = {"sectors": selected_sectors, "threshold": total_threshold}
 
 if st.sidebar.button("Run Filtering Process"):
     if uploaded_file:
