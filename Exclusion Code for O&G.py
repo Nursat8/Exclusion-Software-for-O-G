@@ -7,11 +7,12 @@ def load_data(file, sheet_name, header_row):
 
 def filter_exclusions(upstream_df, midstream_df):
     # Select correct columns using index positions
-    upstream_df = upstream_df.iloc[:, [27, 41, 42, 46]]  # AB, AP, AQ, AU
-    upstream_df.columns = ["Fossil Fuel Share of Revenue", "BB Ticker", "ISIN Equity", "LEI"]
+    upstream_df = upstream_df.iloc[:, [5, 27, 41, 42, 46]]  # Company, AB, AP, AQ, AU
+    upstream_df.columns = ["Company", "Fossil Fuel Share of Revenue", "BB Ticker", "ISIN Equity", "LEI"]
     
-    midstream_df = midstream_df.iloc[:, [8, 9, 10, 11]]  # I, J, K, L
+    midstream_df = midstream_df.iloc[:, [5, 8, 9, 10, 11]]  # Company, I, J, K, L
     midstream_df.columns = [
+        "Company",
         "Length of Pipelines under Development",
         "Liquefaction Capacity (Export)",
         "Regasification Capacity (Import)",
@@ -25,7 +26,7 @@ def filter_exclusions(upstream_df, midstream_df):
     
     # Identify exclusion criteria
     upstream_exclusion = upstream_df["Fossil Fuel Share of Revenue"] > 0
-    midstream_exclusion = midstream_df.notna().any(axis=1)
+    midstream_exclusion = midstream_df.iloc[:, 1:].notna().any(axis=1)  # Check if any midstream column has a value
     
     # Create exclusion reason
     upstream_df["Exclusion Reason"] = ""
@@ -35,8 +36,8 @@ def filter_exclusions(upstream_df, midstream_df):
     
     # Combine data
     excluded_companies = pd.concat([
-        upstream_df.loc[upstream_exclusion, ["BB Ticker", "ISIN Equity", "LEI", "Exclusion Reason"]],
-        midstream_df.loc[midstream_exclusion]
+        upstream_df.loc[upstream_exclusion, ["Company", "BB Ticker", "ISIN Equity", "LEI", "Fossil Fuel Share of Revenue", "Exclusion Reason"]],
+        midstream_df.loc[midstream_exclusion, ["Company", "Exclusion Reason", "Length of Pipelines under Development", "Liquefaction Capacity (Export)", "Regasification Capacity (Import)", "Total Capacity under Development"]]
     ], ignore_index=True)
     
     return excluded_companies
