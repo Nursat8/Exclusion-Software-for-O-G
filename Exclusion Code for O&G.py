@@ -22,20 +22,17 @@ def filter_companies_by_revenue(uploaded_file, tar_sand_threshold, arctic_thresh
         "LEI LEI": "LEI",
         "Unconventionals Tar Sands": "Tar Sand Revenue",
         "Unconventionals Arctic": "Arctic Revenue",
-        "Unconventionals Coalbed Methane": "Coalbed Methane Revenue",
-        "Primary Business Sectors Unnamed: 14_level_1": "Primary Business Sector",
-        "Pipelines Length of Pipelines under Development": "Pipeline Expansion",
-        "LNG Terminals Total Capacity under Development": "LNG Terminal Expansion"
+        "Unconventionals Coalbed Methane": "Coalbed Methane Revenue"
     }
     
     df.rename(columns=column_mapping, inplace=True, errors='ignore')
     
     # Keep only required columns
-    required_columns = list(column_mapping.values())
-    df = df[required_columns]
+    required_columns = list(column_mapping.values()) + ["Exclusion Reason"]
+    df = df[list(column_mapping.values())]
     
-    # Remove companies with no data (empty cells)
-    df = df.dropna(how='all')
+    # Remove companies with no data (empty cells in exclusion-related columns)
+    df = df.dropna(subset=["Tar Sand Revenue", "Arctic Revenue", "Coalbed Methane Revenue"], how='all')
     
     revenue_columns = ["Tar Sand Revenue", "Arctic Revenue", "Coalbed Methane Revenue"]
     for col in revenue_columns:
@@ -66,29 +63,21 @@ def filter_companies_by_revenue(uploaded_file, tar_sand_threshold, arctic_thresh
     retained_companies = df[df["Exclusion Reason"] == ""]
     excluded_companies = df[df["Exclusion Reason"] != ""]
     
-    # Level 2 Exclusion
-    upstream_exclusion_keywords = ["Conventional Oil & Gas", "Unconventional Oil & Gas"]
-    level2_excluded = retained_companies[
-        retained_companies["Primary Business Sector"].astype(str).str.contains('|'.join(upstream_exclusion_keywords), case=False, na=False) |
-        retained_companies["Pipeline Expansion"].notna() |
-        retained_companies["LNG Terminal Expansion"].notna()
-    ]
-    retained_companies = retained_companies.drop(level2_excluded.index)
-    level2_excluded["Exclusion Reason"] = "Upstream/Midstream Expansion"
+    # Remove unnecessary columns from output
+    retained_companies = retained_companies[required_columns]
+    excluded_companies = excluded_companies[required_columns]
     
     # Save to Excel in memory
     output = BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         retained_companies.to_excel(writer, sheet_name="Retained Companies", index=False)
         excluded_companies.to_excel(writer, sheet_name="Excluded Companies", index=False)
-        level2_excluded.to_excel(writer, sheet_name="Excluded Level 2", index=False)
     output.seek(0)
     
     return output, {
         "Total Companies": len(df),
         "Retained Companies": len(retained_companies),
-        "Excluded Companies (Level 1)": len(excluded_companies),
-        "Excluded Companies (Level 2)": len(level2_excluded)
+        "Excluded Companies": len(excluded_companies)
     }
 
 # Streamlit UI
