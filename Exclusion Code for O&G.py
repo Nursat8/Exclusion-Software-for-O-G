@@ -2,10 +2,10 @@ import streamlit as st
 import pandas as pd
 
 def load_data(file, sheet_name, header_row):
-    return pd.read_excel(file, sheet_name=sheet_name, header=header_row)
+    return pd.read_excel(file, sheet_name=sheet_name, header=2)
 
 def filter_exclusions(upstream_df, midstream_df):
-    # Define relevant columns
+    # Corrected column names from extracted data
     upstream_col = "Fossil Fuel Share of Revenue"
     midstream_cols = [
         "Length of Pipelines under Development",
@@ -40,8 +40,8 @@ def main():
     uploaded_file = st.file_uploader("Upload the Excel file", type=["xlsx"])
     
     if uploaded_file is not None:
-        upstream_df = load_data(uploaded_file, sheet_name="Upstream", header_row=6)
-        midstream_df = load_data(uploaded_file, sheet_name="Midstream Expansion", header_row=6)
+        upstream_df = load_data(uploaded_file, sheet_name="Upstream", header_row=2)
+        midstream_df = load_data(uploaded_file, sheet_name="Midstream Expansion", header_row=2)
         
         excluded_data = filter_exclusions(upstream_df, midstream_df)
         
