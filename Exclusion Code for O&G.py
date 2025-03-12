@@ -153,10 +153,6 @@ if st.sidebar.button("Run Filtering Process"):
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
 
-import streamlit as st
-import pandas as pd
-import io
-
 def load_data(file, sheet_name, header_row):
     """Load Excel data starting from the given header row (0-based)."""
     return pd.read_excel(file, sheet_name=sheet_name, header=header_row)
@@ -174,14 +170,13 @@ def filter_exclusions_and_retained(upstream_df, midstream_df):
     # --- 1. Rename columns and select relevant ones ---
 
     # Upstream: columns by index -> [5, 27, 41, 42, 46]
-    # Adjusted to your actual columns:
     upstream_subset = upstream_df.iloc[:, [5, 27, 41, 42, 46]].copy()
     upstream_subset.columns = [
-        "Company",                    # col index 5
-        "Fossil Fuel Share of Revenue",  # col index 27
-        "BB Ticker",                     # col index 41
-        "ISIN Equity",                   # col index 42
-        "LEI",                           # col index 46
+        "Company",                        # col index 5
+        "Fossil Fuel Share of Revenue",   # col index 27
+        "BB Ticker",                      # col index 41
+        "ISIN Equity",                    # col index 42
+        "LEI",                            # col index 46
     ]
 
     # Convert fossil-fuel share to numeric (remove '%' if present)
@@ -205,18 +200,25 @@ def filter_exclusions_and_retained(upstream_df, midstream_df):
         "Total Capacity under Development",     # col index 11
     ]
 
+    # Convert all midstream capacity columns to numeric
+    numeric_cols = [
+        "Length of Pipelines under Development",
+        "Liquefaction Capacity (Export)",
+        "Regasification Capacity (Import)",
+        "Total Capacity under Development"
+    ]
+    for col in numeric_cols:
+        midstream_subset[col] = pd.to_numeric(midstream_subset[col], errors='coerce').fillna(0)
+
     # --- 2. Determine Upstream/Midstream flags at the "Company" level ---
 
-    # Upstream criterion: Fossil Fuel Share of Revenue > 0
-    # We'll group by company and see if ANY row for that company has > 0.
     def combine_identifiers(series):
-        """
-        Helper to store distinct non-null items from a column
-        as a comma-separated string (e.g., multiple tickers).
-        """
+        """Collect unique non-null items into a comma-separated string."""
         unique_vals = series.dropna().unique().tolist()
         return ", ".join(map(str, unique_vals)) if unique_vals else ""
 
+    # Upstream criterion: Fossil Fuel Share of Revenue > 0
+    # We'll group by company and see if ANY row for that company has > 0.
     upstream_grouped = (
         upstream_subset
         .groupby("Company", dropna=False)  # keep all company names
@@ -234,14 +236,13 @@ def filter_exclusions_and_retained(upstream_df, midstream_df):
     )
 
     # Midstream criterion: any pipeline or capacity column is > 0
-    # (Adjust the check if you want to treat nulls differently.)
-    def has_midstream_expansion(df):
+    def has_midstream_expansion(row):
         return (
-            (df["Length of Pipelines under Development"] > 0) |
-            (df["Liquefaction Capacity (Export)"] > 0)        |
-            (df["Regasification Capacity (Import)"] > 0)      |
-            (df["Total Capacity under Development"] > 0)
-        ).any()
+            (row["Length of Pipelines under Development"] > 0)
+            or (row["Liquefaction Capacity (Export)"] > 0)
+            or (row["Regasification Capacity (Import)"] > 0)
+            or (row["Total Capacity under Development"] > 0)
+        )
 
     midstream_grouped = (
         midstream_subset
@@ -257,8 +258,7 @@ def filter_exclusions_and_retained(upstream_df, midstream_df):
 
     # Create a boolean flag for midstream
     midstream_grouped["Midstream_Exclusion_Flag"] = midstream_grouped.apply(
-        has_midstream_expansion,
-        axis=1
+        has_midstream_expansion, axis=1
     )
 
     # --- 3. Combine (merge) upstream+midstream groupings by company ---
@@ -274,7 +274,7 @@ def filter_exclusions_and_retained(upstream_df, midstream_df):
 
     # --- 4. Determine final exclusion and reason ---
 
-    # If you want OR logic: exclude if Upstream_Exclusion_Flag == True OR Midstream_Exclusion_Flag == True
+    # Exclude if Upstream_Exclusion_Flag == True OR Midstream_Exclusion_Flag == True
     combined["Excluded"] = combined["Upstream_Exclusion_Flag"] | combined["Midstream_Exclusion_Flag"]
 
     # Build up an exclusion reason text
@@ -317,7 +317,6 @@ def main():
         with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
             excluded_data.to_excel(writer, index=False, sheet_name='Exclusions')
             retained_data.to_excel(writer, index=False, sheet_name='Retained')
-
         output.seek(0)
 
         # Provide download option
