@@ -67,6 +67,11 @@ def filter_companies_by_revenue(uploaded_file, tar_sand_exclude, tar_sand_thresh
     retained_companies = df[df["Exclusion Reason"] == ""]
     excluded_companies = df[df["Exclusion Reason"] != ""]
     
+    # Ensure companies_with_no_data has all required columns
+    for col in required_columns:
+        if col not in companies_with_no_data.columns:
+            companies_with_no_data[col] = np.nan
+    
     # Remove unnecessary columns from output
     retained_companies = retained_companies[required_columns]
     excluded_companies = excluded_companies[required_columns]
