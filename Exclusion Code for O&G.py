@@ -203,7 +203,7 @@ def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_threshol
 
 # -------------------------- STREAMLIT APP --------------------------
 def main():
-    st.title("Level 1 Exclusion Filter (All Companies - Dynamic Column Search)")
+    st.title("Level 1 Exclusion Filter For O&G")
     uploaded_file = st.file_uploader("Upload Excel file", type=["xlsx"])
 
     st.sidebar.header("Set Exclusion Criteria")
