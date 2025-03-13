@@ -34,14 +34,12 @@ def find_column(df, possible_matches, how="partial", required=True):
 
 def rename_columns(df):
     """
-    Flatten multi-level headers, skip first 3 rows of data (so row 7 in Excel = row 0 in DF),
-    then rename columns dynamically.
+    Flatten multi-level headers, adjust row position so row 7 in Excel aligns to row 0 in pandas.
     """
     df = flatten_multilevel_columns(df)
     
-    # Skip 3 rows so row 7 in Excel aligns to row 0
-    df = df.iloc[3:].copy()
-    df.reset_index(drop=True, inplace=True)
+    # Ensure row 7 in Excel is row 0 in pandas (Shift up by 1 row)
+    df = df.iloc[1:].reset_index(drop=True)
 
     rename_map = {
         "Company": ["company"],  # Ensuring we get the right "Company" column dynamically
@@ -155,7 +153,7 @@ def filter_all_companies(df):
 #########################
 
 def main():
-    st.title("All Companies Exclusion Analysis (Correcting Row 7 Issue)")
+    st.title("All Companies Exclusion Analysis (Fix for Row 7)")
 
     uploaded_file = st.file_uploader("Upload Excel file", type=["xlsx"])
 
