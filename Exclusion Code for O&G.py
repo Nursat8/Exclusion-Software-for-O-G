@@ -3,11 +3,12 @@ import pandas as pd
 import io
 from io import BytesIO
 
+#########################
+# 1) HELPER FUNCTIONS
+#########################
+
 def flatten_multilevel_columns(df):
-    """
-    Convert multi-level headers into single strings, e.g.:
-      ("Company", "Unnamed: 11_level_1") -> "Company Unnamed: 11_level_1"
-    """
+    """Flatten multi-level column headers into single strings."""
     df.columns = [
         " ".join(str(level) for level in col).strip()
         for col in df.columns
@@ -15,20 +16,15 @@ def flatten_multilevel_columns(df):
     return df
 
 def find_column(df, possible_matches, how="partial", required=True):
-    """
-    Finds the first column whose name (case-insensitive) partially or exactly
-    matches any item in possible_matches.
-    """
+    """Finds the first column matching any item in possible_matches."""
     for col in df.columns:
         col_lower = col.strip().lower()
         for pattern in possible_matches:
             pat_lower = pattern.strip().lower()
-            if how == "exact":
-                if col_lower == pat_lower:
-                    return col
-            elif how == "partial":
-                if pat_lower in col_lower:
-                    return col
+            if how == "exact" and col_lower == pat_lower:
+                return col
+            elif how == "partial" and pat_lower in col_lower:
+                return col
     if required:
         raise ValueError(
             f"Could not find a required column among {possible_matches}\n"
@@ -37,23 +33,13 @@ def find_column(df, possible_matches, how="partial", required=True):
     return None
 
 def rename_columns(df):
-    """
-    1) Flatten multi-level columns into single-level strings.
-    2) Skip 2 top data-rows so that row 7 in Excel becomes row 0 in the DF.
-    3) Then rename partial matches for 'Company', 'Fossil Fuel Share', etc.
-    """
-
-    # A) Flatten multi-level headers
+    """Flatten multi-level headers, skip first 2 rows of data, then rename columns."""
     df = flatten_multilevel_columns(df)
-
-    # B) The user said "names of companies start from row 7",
-    #    so we skip the first 2 lines after the header. Adjust if you need to skip more/fewer.
-    df = df.iloc[2:].copy()  # skip the next 2 lines
+    df = df.iloc[2:].copy()  # Skip 2 extra rows so row 7 in Excel starts at row 0
     df.reset_index(drop=True, inplace=True)
 
-    # C) rename partial matches
     rename_map = {
-        "Company": ["company"],  # find e.g. "Company Unnamed" etc. then rename to "Company"
+        "Company": ["company"],  # Dynamically find the "Company" column
         "Fossil Fuel Share of Revenue": ["fossil fuel share of revenue", "fossil fuel share"],
         "Length of Pipelines under Development": ["length of pipelines", "pipeline under dev"],
         "Liquefaction Capacity (Export)": ["liquefaction capacity (export)", "lng export capacity"],
@@ -68,15 +54,14 @@ def rename_columns(df):
 
     return df
 
-def filter_all_companies(df):
-    """
-    - Multi-level columns read from header=[3,4]
-    - Flatten columns, skip 2 lines so row 7 is row 0
-    - Find & rename partial matches to get "Company" + Upstream/Midstream columns
-    - Exclusion logic
-    """
+#########################
+# 2) CORE EXCLUSION LOGIC
+#########################
 
-    # 1) Flatten + rename
+def filter_all_companies(df):
+    """Parses 'All Companies' sheet, applies exclusion logic, and splits into categories."""
+    
+    # 1) Flatten headers, rename columns
     df = rename_columns(df)
 
     # 2) Ensure numeric columns exist
@@ -91,7 +76,7 @@ def filter_all_companies(df):
         if c not in df.columns:
             df[c] = 0
 
-    # 3) Convert numeric
+    # 3) Convert numeric columns
     for c in numeric_cols:
         df[c] = (
             df[c].astype(str)
@@ -104,7 +89,7 @@ def filter_all_companies(df):
     if "Company" not in df.columns:
         df["Company"] = None
 
-    # 5) Upstream + Midstream Exclusion
+    # 5) Upstream & Midstream Exclusion
     df["Upstream_Exclusion_Flag"] = df["Fossil Fuel Share of Revenue"] > 0
     df["Midstream_Exclusion_Flag"] = (
         (df["Length of Pipelines under Development"] > 0)
@@ -125,7 +110,7 @@ def filter_all_companies(df):
         reasons.append("; ".join(r))
     df["Exclusion Reason"] = reasons
 
-    # 7) No Data if numeric=0 & not excluded
+    # 7) Identify No Data Companies (All Numeric = 0, Not Excluded)
     def is_no_data(r):
         zeroes = (
             (r["Fossil Fuel Share of Revenue"] == 0)
@@ -138,10 +123,12 @@ def filter_all_companies(df):
 
     no_data_mask = df.apply(is_no_data, axis=1)
 
+    # 8) Split into categories
     excluded_df = df[df["Excluded"]].copy()
     no_data_df = df[no_data_mask].copy()
     retained_df = df[~df["Excluded"] & ~no_data_mask].copy()
 
+    # 9) Keep only required columns
     final_cols = [
         "Company",
         "Fossil Fuel Share of Revenue",
@@ -152,21 +139,18 @@ def filter_all_companies(df):
         "Exclusion Reason"
     ]
     for c in final_cols:
-        if c not in excluded_df.columns:
-            excluded_df[c] = None
-        if c not in no_data_df.columns:
-            no_data_df[c] = None
-        if c not in retained_df.columns:
-            retained_df[c] = None
+        for d in [excluded_df, retained_df, no_data_df]:
+            if c not in d.columns:
+                d[c] = None
 
     return excluded_df[final_cols], retained_df[final_cols], no_data_df[final_cols]
 
 #########################
-# STREAMLIT APP
+# 3) STREAMLIT APP
 #########################
 
 def main():
-    st.title("All Companies Multi-Level Header Parsing")
+    st.title("All Companies Exclusion Analysis")
 
     uploaded_file = st.file_uploader("Upload Excel file", type=["xlsx"])
 
@@ -177,16 +161,24 @@ def main():
             st.error("No sheet named 'All Companies'.")
             return
 
-        # Parse with multi-level headers from rows 3 & 4 (0-based)
-        # So if your Excel has 'Company' in row 4, 'Unnamed...' in row 5, etc.
+        # Read with multi-level headers from rows 3 & 4 (0-based)
         df_all = pd.read_excel(
             uploaded_file,
             sheet_name="All Companies",
-            header=[3,4]  # 0-based
+            header=[3,4]
         )
 
         excluded, retained, no_data = filter_all_companies(df_all)
 
+        # STATS
+        total_companies = len(excluded) + len(retained) + len(no_data)
+        st.subheader("Summary Statistics")
+        st.write(f"**Total Companies Processed:** {total_companies}")
+        st.write(f"**Excluded Companies:** {len(excluded)}")
+        st.write(f"**Retained Companies:** {len(retained)}")
+        st.write(f"**No Data Companies:** {len(no_data)}")
+
+        # Display DataFrames
         st.subheader("Excluded Companies")
         st.dataframe(excluded)
 
@@ -205,7 +197,7 @@ def main():
         output.seek(0)
 
         st.download_button(
-            "Download Results",
+            "Download Processed File",
             output,
             "all_companies_exclusion.xlsx",
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
