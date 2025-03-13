@@ -33,13 +33,18 @@ def find_column(df, possible_matches, how="partial", required=True):
     return None
 
 def rename_columns(df):
-    """Flatten multi-level headers, skip first 2 rows of data, then rename columns."""
+    """
+    Flatten multi-level headers, skip first 3 rows of data (so row 7 in Excel = row 0 in DF),
+    then rename columns dynamically.
+    """
     df = flatten_multilevel_columns(df)
-    df = df.iloc[2:].copy()  # Skip 2 extra rows so row 7 in Excel starts at row 0
+    
+    # Skip 3 rows so row 7 in Excel aligns to row 0
+    df = df.iloc[3:].copy()
     df.reset_index(drop=True, inplace=True)
 
     rename_map = {
-        "Company": ["company"],  # Dynamically find the "Company" column
+        "Company": ["company"],  # Ensuring we get the right "Company" column dynamically
         "Fossil Fuel Share of Revenue": ["fossil fuel share of revenue", "fossil fuel share"],
         "Length of Pipelines under Development": ["length of pipelines", "pipeline under dev"],
         "Liquefaction Capacity (Export)": ["liquefaction capacity (export)", "lng export capacity"],
@@ -85,11 +90,11 @@ def filter_all_companies(df):
         )
         df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0)
 
-    # 4) If "Company" not found, create blank
+    # 4) Ensure "Company" is picked up correctly
     if "Company" not in df.columns:
         df["Company"] = None
 
-    # 5) Upstream & Midstream Exclusion
+    # 5) Apply Exclusion Logic
     df["Upstream_Exclusion_Flag"] = df["Fossil Fuel Share of Revenue"] > 0
     df["Midstream_Exclusion_Flag"] = (
         (df["Length of Pipelines under Development"] > 0)
@@ -150,7 +155,7 @@ def filter_all_companies(df):
 #########################
 
 def main():
-    st.title("All Companies Exclusion Analysis")
+    st.title("All Companies Exclusion Analysis (Correcting Row 7 Issue)")
 
     uploaded_file = st.file_uploader("Upload Excel file", type=["xlsx"])
 
