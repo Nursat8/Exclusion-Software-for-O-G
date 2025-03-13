@@ -3,14 +3,21 @@ import pandas as pd
 import io
 from io import BytesIO
 
-################################
-# 1) HELPER FUNCTIONS
-################################
+def flatten_multilevel_columns(df):
+    """
+    Convert multi-level headers into single strings, e.g.:
+      ("Company", "Unnamed: 11_level_1") -> "Company Unnamed: 11_level_1"
+    """
+    df.columns = [
+        " ".join(str(level) for level in col).strip()
+        for col in df.columns
+    ]
+    return df
 
 def find_column(df, possible_matches, how="partial", required=True):
     """
-    Searches df.columns for the first column that matches any in `possible_matches`.
-    Returns the actual column name, or None if not found (and required=False).
+    Finds the first column whose name (case-insensitive) partially or exactly
+    matches any item in possible_matches.
     """
     for col in df.columns:
         col_lower = col.strip().lower()
@@ -29,103 +36,75 @@ def find_column(df, possible_matches, how="partial", required=True):
         )
     return None
 
-def rename_columns(df, rename_map, how="partial"):
+def rename_columns(df):
     """
-    Given a dict like:
-        {
-          "Company": ["company", "company name"],
-          "Fossil Fuel Share of Revenue": ["fossil fuel share", "fossil fuel revenue"]
-        }
-    we look for each pattern and rename in-place if found.
+    1) Flatten multi-level columns into single-level strings.
+    2) Skip 2 top data-rows so that row 7 in Excel becomes row 0 in the DF.
+    3) Then rename partial matches for 'Company', 'Fossil Fuel Share', etc.
     """
-    for new_col_name, patterns in rename_map.items():
-        old_name = find_column(df, patterns, how=how, required=False)
-        if old_name:
-            df.rename(columns={old_name: new_col_name}, inplace=True)
+
+    # A) Flatten multi-level headers
+    df = flatten_multilevel_columns(df)
+
+    # B) The user said "names of companies start from row 7",
+    #    so we skip the first 2 lines after the header. Adjust if you need to skip more/fewer.
+    df = df.iloc[2:].copy()  # skip the next 2 lines
+    df.reset_index(drop=True, inplace=True)
+
+    # C) rename partial matches
+    rename_map = {
+        "Company": ["company"],  # find e.g. "Company Unnamed" etc. then rename to "Company"
+        "Fossil Fuel Share of Revenue": ["fossil fuel share of revenue", "fossil fuel share"],
+        "Length of Pipelines under Development": ["length of pipelines", "pipeline under dev"],
+        "Liquefaction Capacity (Export)": ["liquefaction capacity (export)", "lng export capacity"],
+        "Regasification Capacity (Import)": ["regasification capacity (import)", "lng import capacity"],
+        "Total Capacity under Development": ["total capacity under development", "total dev capacity"]
+    }
+
+    for new_col, patterns in rename_map.items():
+        old_col = find_column(df, patterns, how="partial", required=False)
+        if old_col and old_col != new_col:
+            df.rename(columns={old_col: new_col}, inplace=True)
+
     return df
-
-def load_data(file, sheet_name, header_row=0):
-    """Helper to load the specified sheet from Excel, using the given header row."""
-    return pd.read_excel(file, sheet_name=sheet_name, header=header_row)
-
-
-################################
-# 2) CORE EXCLUSION LOGIC
-################################
 
 def filter_all_companies(df):
     """
-    Takes a single DataFrame (`df`) from "All Companies" sheet, which must have:
-     - "Company"
-     - "Fossil Fuel Share of Revenue"
-     - Possibly midstream columns:
-         "Length of Pipelines under Development"
-         "Liquefaction Capacity (Export)"
-         "Regasification Capacity (Import)"
-         "Total Capacity under Development"
-
-    Then:
-      1) Upstream_Exclusion_Flag = (Fossil Fuel Share of Revenue > 0)
-      2) Midstream_Exclusion_Flag = any midstream capacity > 0
-      3) Excluded if either flag is true
-      4) Retained if not excluded
-      5) "No Data" if all relevant numeric columns are 0 or blank
+    - Multi-level columns read from header=[3,4]
+    - Flatten columns, skip 2 lines so row 7 is row 0
+    - Find & rename partial matches to get "Company" + Upstream/Midstream columns
+    - Exclusion logic
     """
 
-    # 1) RENAME columns we care about
-    rename_map = {
-        "Company": ["company", "company name"],
-        "Fossil Fuel Share of Revenue": [
-            "fossil fuel share of revenue",
-            "fossil fuel share",
-            "fossil fuel revenue"
-        ],
-        "Length of Pipelines under Development": [
-            "length of pipelines under development",
-            "length of pipelines"
-        ],
-        "Liquefaction Capacity (Export)": [
-            "liquefaction capacity (export)",
-            "lng export capacity"
-        ],
-        "Regasification Capacity (Import)": [
-            "regasification capacity (import)",
-            "lng import capacity"
-        ],
-        "Total Capacity under Development": [
-            "total capacity under development",
-            "total dev capacity"
-        ]
-    }
-    rename_columns(df, rename_map, how="partial")
+    # 1) Flatten + rename
+    df = rename_columns(df)
 
-    # 2) Make sure we at least have columns for them (fill with 0 or None)
-    needed_for_numeric = [
+    # 2) Ensure numeric columns exist
+    numeric_cols = [
         "Fossil Fuel Share of Revenue",
         "Length of Pipelines under Development",
         "Liquefaction Capacity (Export)",
         "Regasification Capacity (Import)",
         "Total Capacity under Development"
     ]
-    for col in needed_for_numeric:
-        if col not in df.columns:
-            df[col] = 0  # no data => 0
+    for c in numeric_cols:
+        if c not in df.columns:
+            df[c] = 0
 
-    if "Company" not in df.columns:
-        df["Company"] = None  # fallback, though it means we have no company name
-
-    # 3) Convert to numeric
-    numeric_cols = needed_for_numeric
-    for col in numeric_cols:
-        df[col] = (
-            df[col]
-            .astype(str)
+    # 3) Convert numeric
+    for c in numeric_cols:
+        df[c] = (
+            df[c].astype(str)
             .str.replace("%", "", regex=True)
             .str.replace(",", "", regex=True)
         )
-        df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
+        df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0)
 
-    # 4) Build flags
+    # 4) If "Company" not found, create blank
+    if "Company" not in df.columns:
+        df["Company"] = None
+
+    # 5) Upstream + Midstream Exclusion
     df["Upstream_Exclusion_Flag"] = df["Fossil Fuel Share of Revenue"] > 0
     df["Midstream_Exclusion_Flag"] = (
         (df["Length of Pipelines under Development"] > 0)
@@ -133,8 +112,6 @@ def filter_all_companies(df):
         | (df["Regasification Capacity (Import)"] > 0)
         | (df["Total Capacity under Development"] > 0)
     )
-
-    # 5) Exclude if either upstream or midstream
     df["Excluded"] = df["Upstream_Exclusion_Flag"] | df["Midstream_Exclusion_Flag"]
 
     # 6) Build Exclusion Reason
@@ -148,94 +125,91 @@ def filter_all_companies(df):
         reasons.append("; ".join(r))
     df["Exclusion Reason"] = reasons
 
-    # 7) "No Data" means all relevant numeric columns = 0 (and not excluded)
-    def is_no_data(row):
-        # If everything is zero, no fossil share, no midstream dev
-        # plus no Ticker or LEI, you can define logic or skip
-        cond_numeric = (
-            (row["Fossil Fuel Share of Revenue"] == 0)
-            & (row["Length of Pipelines under Development"] == 0)
-            & (row["Liquefaction Capacity (Export)"] == 0)
-            & (row["Regasification Capacity (Import)"] == 0)
-            & (row["Total Capacity under Development"] == 0)
+    # 7) No Data if numeric=0 & not excluded
+    def is_no_data(r):
+        zeroes = (
+            (r["Fossil Fuel Share of Revenue"] == 0)
+            and (r["Length of Pipelines under Development"] == 0)
+            and (r["Liquefaction Capacity (Export)"] == 0)
+            and (r["Regasification Capacity (Import)"] == 0)
+            and (r["Total Capacity under Development"] == 0)
         )
-        return (cond_numeric and not row["Excluded"])
+        return zeroes and not r["Excluded"]
 
     no_data_mask = df.apply(is_no_data, axis=1)
 
-    # 8) Subset into final data
-    no_data_companies = df[no_data_mask].copy()
-    excluded_companies = df[df["Excluded"]].copy()
-    retained_companies = df[~df["Excluded"] & ~no_data_mask].copy()
+    excluded_df = df[df["Excluded"]].copy()
+    no_data_df = df[no_data_mask].copy()
+    retained_df = df[~df["Excluded"] & ~no_data_mask].copy()
 
-    return excluded_companies, retained_companies, no_data_companies
+    final_cols = [
+        "Company",
+        "Fossil Fuel Share of Revenue",
+        "Length of Pipelines under Development",
+        "Liquefaction Capacity (Export)",
+        "Regasification Capacity (Import)",
+        "Total Capacity under Development",
+        "Exclusion Reason"
+    ]
+    for c in final_cols:
+        if c not in excluded_df.columns:
+            excluded_df[c] = None
+        if c not in no_data_df.columns:
+            no_data_df[c] = None
+        if c not in retained_df.columns:
+            retained_df[c] = None
 
+    return excluded_df[final_cols], retained_df[final_cols], no_data_df[final_cols]
 
-################################
-# 3) STREAMLIT APP
-################################
+#########################
+# STREAMLIT APP
+#########################
 
 def main():
-    st.title("Exclusion from a Single 'All Companies' Sheet")
+    st.title("All Companies Multi-Level Header Parsing")
 
     uploaded_file = st.file_uploader("Upload Excel file", type=["xlsx"])
 
-    header_row = st.number_input("Header row index (0-based)", min_value=0, max_value=50, value=0,
-                                 help="If your columns start on row 2 in Excel, use header_row=1, etc.")
-
     if uploaded_file:
         xls = pd.ExcelFile(uploaded_file)
-        sheet_names = xls.sheet_names
-        st.write("Available sheets:", sheet_names)
 
-        if "All Companies" not in sheet_names:
-            st.error("Sheet named 'All Companies' not found. Please check your Excel file or rename the sheet.")
+        if "All Companies" not in xls.sheet_names:
+            st.error("No sheet named 'All Companies'.")
             return
 
-        # Load the single sheet
-        df_all = load_data(uploaded_file, sheet_name="All Companies", header_row=header_row)
-        st.write("Dataframe shape:", df_all.shape)
+        # Parse with multi-level headers from rows 3 & 4 (0-based)
+        # So if your Excel has 'Company' in row 4, 'Unnamed...' in row 5, etc.
+        df_all = pd.read_excel(
+            uploaded_file,
+            sheet_name="All Companies",
+            header=[3,4]  # 0-based
+        )
 
-        # Apply the logic
-        excluded_data, retained_data, no_data_data = filter_all_companies(df_all)
-
-        # Stats
-        excl_count = len(excluded_data)
-        ret_count = len(retained_data)
-        nodata_count = len(no_data_data)
-        total_count = excl_count + ret_count + nodata_count
-
-        st.markdown("### Statistics")
-        st.write(f"Total: {total_count}")
-        st.write(f"Excluded: {excl_count}")
-        st.write(f"Retained: {ret_count}")
-        st.write(f"No Data: {nodata_count}")
+        excluded, retained, no_data = filter_all_companies(df_all)
 
         st.subheader("Excluded Companies")
-        st.dataframe(excluded_data)
+        st.dataframe(excluded)
 
         st.subheader("Retained Companies")
-        st.dataframe(retained_data)
+        st.dataframe(retained)
 
         st.subheader("No Data Companies")
-        st.dataframe(no_data_data)
+        st.dataframe(no_data)
 
-        # Export to Excel in memory
+        # Save to Excel
         output = BytesIO()
         with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
-            excluded_data.to_excel(writer, index=False, sheet_name="Excluded")
-            retained_data.to_excel(writer, index=False, sheet_name="Retained")
-            no_data_data.to_excel(writer, index=False, sheet_name="No Data")
+            excluded.to_excel(writer, sheet_name="Excluded", index=False)
+            retained.to_excel(writer, sheet_name="Retained", index=False)
+            no_data.to_excel(writer, sheet_name="No Data", index=False)
         output.seek(0)
 
         st.download_button(
-            label="Download Exclusion Results",
-            data=output,
-            file_name="All_Companies_Exclusion_Results.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            "Download Results",
+            output,
+            "all_companies_exclusion.xlsx",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
-    else:
-        st.info("Please upload an Excel file.")
 
 if __name__ == "__main__":
     main()
