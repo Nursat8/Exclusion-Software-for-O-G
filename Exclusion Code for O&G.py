@@ -112,31 +112,27 @@ def filter_all_companies(df):
     
     df["Exclusion Reason"] = df.apply(get_exclusion_reason, axis=1)
 
-    # 7) Identify No Data Companies (All Numeric = 0, Not Excluded)
-    def is_no_data(r):
-        return (
-            not r["Excluded"]
-            and (r["Length of Pipelines under Development"] == 0)
-            and (r["Liquefaction Capacity (Export)"] == 0)
-            and (r["Regasification Capacity (Import)"] == 0)
-            and (r["Total Capacity under Development"] == 0)
-        )
-
-    no_data_mask = df.apply(is_no_data, axis=1)
-
-    # 8) Split into categories
+    # 7) Move all "No Data" companies into Retained
+    retained_df = df[~df["Excluded"]].copy()
     excluded_df = df[df["Excluded"]].copy()
-    no_data_df = df[no_data_mask].copy()
-    retained_df = df[~df["Excluded"] & ~no_data_mask].copy()
 
-    # 9) Keep only required columns
-    final_cols = ["Company", "GOGEL Tab", "Exclusion Reason"]
+    # 8) Keep only required columns, including Midstream Expansion data
+    final_cols = [
+        "Company",
+        "GOGEL Tab",
+        "Length of Pipelines under Development",
+        "Liquefaction Capacity (Export)",
+        "Regasification Capacity (Import)",
+        "Total Capacity under Development",
+        "Exclusion Reason"
+    ]
+
     for c in final_cols:
-        for d in [excluded_df, retained_df, no_data_df]:
+        for d in [excluded_df, retained_df]:
             if c not in d.columns:
                 d[c] = None
 
-    return excluded_df[final_cols], retained_df[final_cols], no_data_df[final_cols]
+    return excluded_df[final_cols], retained_df[final_cols]
 
 #########################
 # 3) STREAMLIT APP
@@ -161,15 +157,14 @@ def main():
             header=[3,4]
         )
 
-        excluded, retained, no_data = filter_all_companies(df_all)
+        excluded, retained = filter_all_companies(df_all)
 
         # STATS
-        total_companies = len(excluded) + len(retained) + len(no_data)
+        total_companies = len(excluded) + len(retained)
         st.subheader("Summary Statistics")
         st.write(f"**Total Companies Processed:** {total_companies}")
         st.write(f"**Excluded Companies (Upstream & Midstream):** {len(excluded)}")
         st.write(f"**Retained Companies:** {len(retained)}")
-        st.write(f"**No Data Companies:** {len(no_data)}")
 
         # Display DataFrames
         st.subheader("Excluded Companies")
@@ -178,15 +173,11 @@ def main():
         st.subheader("Retained Companies")
         st.dataframe(retained)
 
-        st.subheader("No Data Companies")
-        st.dataframe(no_data)
-
         # Save to Excel
         output = BytesIO()
         with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
             excluded.to_excel(writer, sheet_name="Excluded", index=False)
             retained.to_excel(writer, sheet_name="Retained", index=False)
-            no_data.to_excel(writer, sheet_name="No Data", index=False)
         output.seek(0)
 
         st.download_button(
