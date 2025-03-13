@@ -10,17 +10,17 @@ from io import BytesIO
 def find_column(df, possible_matches, how="partial", required=True):
     """
     Searches df.columns for the first column that matches any item in `possible_matches`.
-    Returns the actual column name, or None if not found and required=False.
+    Returns the actual column name, or None if not found (required=False).
     """
     for col in df.columns:
-        col_lower = col.strip().lower()
+        col_clean = col.strip().lower()
         for pattern in possible_matches:
-            pat_lower = pattern.strip().lower()
+            pat_clean = pattern.strip().lower()
             if how == "exact":
-                if col_lower == pat_lower:
+                if col_clean == pat_clean:
                     return col
             elif how == "partial":
-                if pat_lower in col_lower:
+                if pat_clean in col_clean:
                     return col
 
     if required:
@@ -30,11 +30,15 @@ def find_column(df, possible_matches, how="partial", required=True):
         )
     return None
 
-
 def rename_columns(df, rename_map, how="partial"):
     """
     Rename columns in-place according to rename_map:
         { new_col_name: [list_of_possible_matches], ... }
+    Example:
+        {
+          "Company": ["company", "company name"],
+          "Fossil Fuel Share of Revenue": ["fossil fuel share", "fossil fuel revenue"]
+        }
     """
     for new_col_name, possible_names in rename_map.items():
         old_name = find_column(df, possible_names, how=how, required=False)
@@ -42,9 +46,11 @@ def rename_columns(df, rename_map, how="partial"):
             df.rename(columns={old_name: new_col_name}, inplace=True)
     return df
 
-
 def load_data(file, sheet_name, header_row=0):
-    """Helper to load a given sheet from Excel with a specified header row."""
+    """
+    Helper to load a given sheet from Excel with a specified header row.
+    Adjust header_row if your data starts lower/higher.
+    """
     return pd.read_excel(file, sheet_name=sheet_name, header=header_row)
 
 ##################################
@@ -53,18 +59,16 @@ def load_data(file, sheet_name, header_row=0):
 
 def filter_exclusions_and_retained(upstream_df, midstream_df):
     """
-    1) Dynamically rename columns in Upstream for 'Fossil Fuel Share of Revenue'
-    2) Dynamically rename columns in Midstream for pipeline/capacity
-    3) Merge (outer) => keep all companies
-    4) Remove blank Company rows
-    5) Remove duplicates by Company
-    6) Exclude if Upstream share > 0 or any Midstream capacity > 0
-    7) Split final into (Excluded, Retained, No Data).
+    1) Dynamically rename columns in Upstream for 'Company' & 'Fossil Fuel Share of Revenue'.
+    2) Dynamically rename columns in Midstream for 'Company' & capacity fields.
+    3) Merge on 'Company' with how='outer' => keep all distinct companies that appear in either sheet.
+    4) Exclude if 'Fossil Fuel Share of Revenue' > 0 OR any midstream capacity > 0.
+    5) Split into Excluded / Retained / No Data.
     """
 
-    # --- A) Rename & Prep Upstream ---
+    # -------------- (A) RENAME & PREP UPSTREAM --------------
     upstream_rename_map = {
-        "Company": ["company", "company name"],
+        "Company": ["company", "company name"],  # NO 'parent company' here
         "Fossil Fuel Share of Revenue": [
             "fossil fuel share of revenue",
             "fossil fuel share",
@@ -75,17 +79,18 @@ def filter_exclusions_and_retained(upstream_df, midstream_df):
         "LEI": ["lei"]
     }
     rename_columns(upstream_df, upstream_rename_map, how="partial")
-    # Ensure required columns exist
+
+    # Ensure required columns exist; fill missing with None
     for col in upstream_rename_map.keys():
         if col not in upstream_df.columns:
             upstream_df[col] = None
 
-    # Subset relevant upstream columns
+    # Keep only relevant columns for Upstream
     upstream_subset = upstream_df[
         ["Company", "Fossil Fuel Share of Revenue", "BB Ticker", "ISIN Equity", "LEI"]
     ].copy()
 
-    # Convert fossil-fuel share to numeric
+    # Clean numeric fields
     upstream_subset["Fossil Fuel Share of Revenue"] = (
         upstream_subset["Fossil Fuel Share of Revenue"]
         .astype(str)
@@ -95,10 +100,12 @@ def filter_exclusions_and_retained(upstream_df, midstream_df):
         upstream_subset["Fossil Fuel Share of Revenue"], errors="coerce"
     ).fillna(0)
 
-    # Upstream Exclusion if share > 0
-    upstream_subset["Upstream_Exclusion_Flag"] = upstream_subset["Fossil Fuel Share of Revenue"] > 0
+    # Upstream flag
+    upstream_subset["Upstream_Exclusion_Flag"] = (
+        upstream_subset["Fossil Fuel Share of Revenue"] > 0
+    )
 
-    # --- B) Rename & Prep Midstream ---
+    # -------------- (B) RENAME & PREP MIDSTREAM --------------
     midstream_rename_map = {
         "Company": ["company", "company name"],
         "Length of Pipelines under Development": ["length of pipelines", "pipeline under dev"],
@@ -107,12 +114,13 @@ def filter_exclusions_and_retained(upstream_df, midstream_df):
         "Total Capacity under Development": ["total capacity under development", "total dev capacity"]
     }
     rename_columns(midstream_df, midstream_rename_map, how="partial")
+
     # Fill missing numeric columns with 0
     for col in midstream_rename_map.keys():
         if col not in midstream_df.columns:
             midstream_df[col] = 0
 
-    # Subset relevant midstream columns
+    # Keep only relevant columns for Midstream
     midstream_subset = midstream_df[
         [
             "Company",
@@ -123,7 +131,7 @@ def filter_exclusions_and_retained(upstream_df, midstream_df):
         ]
     ].copy()
 
-    # Convert midstream columns to numeric
+    # Convert capacities to numeric
     numeric_cols = [
         "Length of Pipelines under Development",
         "Liquefaction Capacity (Export)",
@@ -131,9 +139,11 @@ def filter_exclusions_and_retained(upstream_df, midstream_df):
         "Total Capacity under Development"
     ]
     for col in numeric_cols:
-        midstream_subset[col] = pd.to_numeric(midstream_subset[col], errors='coerce').fillna(0)
+        midstream_subset[col] = pd.to_numeric(
+            midstream_subset[col], errors='coerce'
+        ).fillna(0)
 
-    # Aggregate by company (max values)
+    # Group if needed
     midstream_grouped = (
         midstream_subset
         .groupby("Company", dropna=False)
@@ -145,7 +155,7 @@ def filter_exclusions_and_retained(upstream_df, midstream_df):
         })
         .reset_index()
     )
-    # Midstream Exclusion if any capacity > 0
+
     midstream_grouped["Midstream_Exclusion_Flag"] = (
         (midstream_grouped["Length of Pipelines under Development"] > 0)
         | (midstream_grouped["Liquefaction Capacity (Export)"] > 0)
@@ -153,40 +163,27 @@ def filter_exclusions_and_retained(upstream_df, midstream_df):
         | (midstream_grouped["Total Capacity under Development"] > 0)
     )
 
-    # --- C) Merge Upstream + Midstream ---
+    # -------------- (C) MERGE ON 'Company' (outer) --------------
     combined = pd.merge(
         upstream_subset,
         midstream_grouped,
         on="Company",
-        how="outer"  # keep all companies from both sheets
+        how="outer"  # keep all from both sheets
     )
-    # Convert Company to string and strip whitespace
-    combined["Company"] = combined["Company"].astype(str).str.strip()
 
-    # Define a set of junk values to drop
-    junk_values = {"0", ".", "", "n.a.", "na"}
+    # If some rows have blank or NaN in "Company",
+    # you can drop them if you want:
+    # combined["Company"] = combined["Company"].astype(str).str.strip()
+    # combined = combined[combined["Company"] != ""].copy()
 
-    def is_junk(val: str) -> bool:
-        """Return True if the company name is in junk_values (or other placeholders)."""
-        return val.lower() in junk_values
-
-    # Filter out nonsense rows
-    combined = combined[~combined["Company"].apply(is_junk)].copy()
-
-
-    # --- D) Remove blank Company rows, remove duplicates ---
-    combined["Company"] = combined["Company"].astype(str).str.strip()
-    # Drop rows where Company is truly empty
-    combined = combined[combined["Company"] != ""].copy()
-    # Remove duplicates based on Company
-    combined.drop_duplicates(subset=["Company"], inplace=True)
-
+    # -------------- (D) EXCLUSION LOGIC --------------
     # Ensure flags are boolean
     combined["Upstream_Exclusion_Flag"] = combined["Upstream_Exclusion_Flag"].fillna(False).astype(bool)
     combined["Midstream_Exclusion_Flag"] = combined["Midstream_Exclusion_Flag"].fillna(False).astype(bool)
 
-    # Excluded if either upstream or midstream
-    combined["Excluded"] = combined["Upstream_Exclusion_Flag"] | combined["Midstream_Exclusion_Flag"]
+    combined["Excluded"] = (
+        combined["Upstream_Exclusion_Flag"] | combined["Midstream_Exclusion_Flag"]
+    )
 
     # Build reason text
     reasons = []
@@ -199,7 +196,7 @@ def filter_exclusions_and_retained(upstream_df, midstream_df):
         reasons.append("; ".join(r))
     combined["Exclusion Reason"] = reasons
 
-    # --- E) Split into Excluded / Retained / No Data ---
+    # -------------- (E) SPLIT INTO EXCLUDED / RETAINED / NO DATA --------------
     def is_empty_string_or_nan(val):
         return pd.isna(val) or str(val).strip() == ""
 
@@ -208,10 +205,10 @@ def filter_exclusions_and_retained(upstream_df, midstream_df):
         & combined["BB Ticker"].apply(is_empty_string_or_nan)
         & combined["ISIN Equity"].apply(is_empty_string_or_nan)
         & combined["LEI"].apply(is_empty_string_or_nan)
-        & (combined.get("Length of Pipelines under Development", 0) == 0)
-        & (combined.get("Liquefaction Capacity (Export)", 0) == 0)
-        & (combined.get("Regasification Capacity (Import)", 0) == 0)
-        & (combined.get("Total Capacity under Development", 0) == 0)
+        & (combined["Length of Pipelines under Development"] == 0)
+        & (combined["Liquefaction Capacity (Export)"] == 0)
+        & (combined["Regasification Capacity (Import)"] == 0)
+        & (combined["Total Capacity under Development"] == 0)
     )
 
     no_data_companies = combined[no_data_cond].copy()
@@ -220,12 +217,13 @@ def filter_exclusions_and_retained(upstream_df, midstream_df):
 
     return excluded_companies, retained_companies, no_data_companies
 
+
 ##################################
 # 3) STREAMLIT APP
 ##################################
 
 def main():
-    st.title("Level 2 Exclusion Filter (Remove Blank Company & Duplicates)")
+    st.title("Level 2 Exclusion Filter – Using Only the 'Company' Column")
 
     uploaded_file = st.file_uploader("Upload the Excel file", type=["xlsx"])
 
@@ -241,11 +239,12 @@ def main():
             st.error(f"Could not find a sheet named 'Midstream Expansion'. Found sheets: {sheet_names}")
             return
 
-        # Adjust header_row if your data starts on a different line
+        # If your data headers start at row 5 in Excel, set header_row=4, etc.
+        # Adjust if needed:
         upstream_df = load_data(uploaded_file, sheet_name="Upstream", header_row=4)
         midstream_df = load_data(uploaded_file, sheet_name="Midstream Expansion", header_row=4)
 
-        # Run logic
+        # Run the logic
         excluded_data, retained_data, no_data_data = filter_exclusions_and_retained(
             upstream_df, midstream_df
         )
@@ -257,12 +256,12 @@ def main():
         total_count = excluded_count + retained_count + no_data_count
 
         st.markdown("### Statistics")
-        st.write(f"**Total companies (after removing blank, duplicates):** {total_count}")
+        st.write(f"**Total companies (outer merge on 'Company'):** {total_count}")
         st.write(f"**Excluded:** {excluded_count}")
         st.write(f"**Retained:** {retained_count}")
         st.write(f"**No Data:** {no_data_count}")
 
-        # Show dataframes
+        # Show tables
         st.subheader("Excluded Companies")
         st.dataframe(excluded_data)
 
@@ -280,11 +279,10 @@ def main():
             no_data_data.to_excel(writer, index=False, sheet_name='No Data')
         output.seek(0)
 
-        # Download
         st.download_button(
             "Download Exclusion & Retention & NoData List",
             output,
-            "O&G_companies_Level_2_Filtered.xlsx",
+            "O&G_companies_Level_2_Exclusion_CompanyOnly.xlsx",
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
 
