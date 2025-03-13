@@ -3,65 +3,79 @@ import pandas as pd
 import io
 from io import BytesIO
 
-def rename_columns(df):
-    """
-    Tries partial matching for 'Company' among synonyms, but 
-    EXCLUDES any mention of 'Bloomberg' so we do NOT pick up 
-    'Company Name in Bloomberg'.
-    """
-    # Strip column names of trailing spaces
-    df.columns = df.columns.str.strip()
+########################################
+# 1) HELPER FUNCTIONS
+########################################
 
-    # Define synonyms for the real Company column
-    company_synonyms = ["company", "company name"]  # omit "bloomberg"
+def find_column_exact(df, exact_name):
+    """
+    Returns the actual column in df.columns whose case-insensitive
+    name exactly matches `exact_name`. Otherwise None.
+    """
+    target_lower = exact_name.strip().lower()
+    for col in df.columns:
+        if col.strip().lower() == target_lower:
+            return col
+    return None
 
-    # Try to find one that matches
-    # We'll do a partial search that excludes "bloomberg"
-    found_company_col = None
+def find_column_partial(df, patterns):
+    """
+    Returns the first column that partially matches any of the strings in `patterns`.
+    Matching is case-insensitive and checks if `pattern` is a substring of col.lower().
+    """
     for col in df.columns:
         col_lower = col.strip().lower()
-        # If "bloomberg" is in col_lower, skip it
-        if "bloomberg" in col_lower:
-            continue
-        for pattern in company_synonyms:
-            if pattern in col_lower:
-                found_company_col = col
-                break
-        if found_company_col:
-            break
+        for p in patterns:
+            if p.strip().lower() in col_lower:
+                return col
+    return None
 
+def rename_columns(df):
+    """
+    1) EXACT match to find "Company".
+    2) PARTIAL match to find the Upstream/Midstream columns only.
+       (No "BB" or "Bloomberg" columns used.)
+    """
+    # Strip out trailing spaces from all columns
+    df.columns = df.columns.str.strip()
+
+    ########## EXACT "Company" ##########
+    found_company_col = find_column_exact(df, "Company")
+    # If we found it and it's not literally named "Company", rename it:
     if found_company_col and found_company_col != "Company":
         df.rename(columns={found_company_col: "Company"}, inplace=True)
+    # If we didn't find it at all, we'll create a blank "Company" column
+    if "Company" not in df.columns:
+        df["Company"] = None
 
-    # Now do partial matching for other fields
+    ########## PARTIAL matching for Upstream / Midstream fields ##########
     partial_map = {
-        "Fossil Fuel Share of Revenue": [
-            "fossil fuel share", "fossil fuel revenue"
-        ],
-        "Length of Pipelines under Development": [
-            "length of pipelines", "pipeline under dev"
-        ],
-        "Liquefaction Capacity (Export)": ["liquefaction capacity", "lng export"],
-        "Regasification Capacity (Import)": ["regasification capacity", "lng import"],
-        "Total Capacity under Development": ["total capacity under development", "total dev capacity"],
-        "BB Ticker": ["bb ticker", "bloomberg ticker"],
-        "ISIN Equity": ["isin equity", "isin code"],
-        "LEI": ["lei"]
+        "Fossil Fuel Share of Revenue": ["fossil fuel share", "fossil fuel revenue"],
+        "Length of Pipelines under Development": ["length of pipelines", "pipeline under dev"],
+        "Liquefaction Capacity (Export)": ["liquefaction capacity (export)", "lng export capacity"],
+        "Regasification Capacity (Import)": ["regasification capacity (import)", "lng import capacity"],
+        "Total Capacity under Development": ["total capacity under development", "total dev capacity"]
     }
+    for new_col_name, patterns in partial_map.items():
+        old_col = find_column_partial(df, patterns)
+        if old_col and old_col != new_col_name:
+            df.rename(columns={old_col: new_col_name}, inplace=True)
 
-    for new_col, patterns in partial_map.items():
-        for col in df.columns:
-            col_lower = col.strip().lower()
-            for pat in patterns:
-                if pat in col_lower:
-                    df.rename(columns={col: new_col}, inplace=True)
-                    break
+########################################
+# 2) CORE EXCLUSION LOGIC
+########################################
 
 def filter_all_companies(df):
-    # 1) Rename columns (handles 'Company' and partial matches for other fields)
+    """
+    Reads from "All Companies" sheet, uses EXACT "Company" column,
+    partial for Upstream/Midstream columns, then splits into
+    Excluded / Retained / No Data. 
+    """
+
+    # 1) Rename columns (exact for "Company", partial for Upstream/Midstream)
     rename_columns(df)
 
-    # 2) Ensure numeric fields exist or fill with 0
+    # 2) Ensure numeric columns exist or fill them with 0
     numeric_cols = [
         "Fossil Fuel Share of Revenue",
         "Length of Pipelines under Development",
@@ -73,12 +87,7 @@ def filter_all_companies(df):
         if c not in df.columns:
             df[c] = 0
 
-    # 3) Ensure 'Company', 'BB Ticker', 'ISIN Equity', 'LEI'
-    for c in ["Company", "BB Ticker", "ISIN Equity", "LEI"]:
-        if c not in df.columns:
-            df[c] = None
-
-    # 4) Convert numeric
+    # 3) Convert those columns to float
     for c in numeric_cols:
         df[c] = (
             df[c].astype(str)
@@ -87,7 +96,7 @@ def filter_all_companies(df):
         )
         df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0)
 
-    # 5) Exclusion flags
+    # 4) Upstream + Midstream flags
     df["Upstream_Exclusion_Flag"] = df["Fossil Fuel Share of Revenue"] > 0
     df["Midstream_Exclusion_Flag"] = (
         (df["Length of Pipelines under Development"] > 0)
@@ -97,7 +106,7 @@ def filter_all_companies(df):
     )
     df["Excluded"] = df["Upstream_Exclusion_Flag"] | df["Midstream_Exclusion_Flag"]
 
-    # 6) Build reason
+    # 5) Build Exclusion Reason
     reasons = []
     for _, row in df.iterrows():
         r = []
@@ -108,7 +117,7 @@ def filter_all_companies(df):
         reasons.append("; ".join(r))
     df["Exclusion Reason"] = reasons
 
-    # 7) No Data
+    # 6) No Data: all numeric columns = 0 AND not excluded
     def is_no_data(r):
         numeric_zero = (
             (r["Fossil Fuel Share of Revenue"] == 0)
@@ -121,16 +130,13 @@ def filter_all_companies(df):
 
     no_data_mask = df.apply(is_no_data, axis=1)
 
-    excluded = df[df["Excluded"]].copy()
-    no_data = df[no_data_mask].copy()
-    retained = df[~df["Excluded"] & ~no_data_mask].copy()
+    excluded_data = df[df["Excluded"]].copy()
+    no_data_data = df[no_data_mask].copy()
+    retained_data = df[~df["Excluded"] & ~no_data_mask].copy()
 
-    # 8) Final columns
+    # 7) Final columns
     final_cols = [
         "Company",
-        "BB Ticker",
-        "ISIN Equity",
-        "LEI",
         "Fossil Fuel Share of Revenue",
         "Length of Pipelines under Development",
         "Liquefaction Capacity (Export)",
@@ -138,53 +144,63 @@ def filter_all_companies(df):
         "Total Capacity under Development",
         "Exclusion Reason"
     ]
+
+    # Fill missing columns in each subset
     for c in final_cols:
-        if c not in excluded.columns:
-            excluded[c] = None
-        if c not in no_data.columns:
-            no_data[c] = None
-        if c not in retained.columns:
-            retained[c] = None
+        if c not in excluded_data.columns:
+            excluded_data[c] = None
+        if c not in no_data_data.columns:
+            no_data_data[c] = None
+        if c not in retained_data.columns:
+            retained_data[c] = None
 
-    return excluded[final_cols], retained[final_cols], no_data[final_cols]
+    excluded_data = excluded_data[final_cols]
+    no_data_data = no_data_data[final_cols]
+    retained_data = retained_data[final_cols]
 
-import streamlit as st
-import pandas as pd
-import io
-from io import BytesIO
+    return excluded_data, retained_data, no_data_data
+
+########################################
+# 3) STREAMLIT APP
+########################################
 
 def main():
-    st.title("All Companies Exclusion - Force 'Company' & Exclude 'Bloomberg' Column Name")
-    uploaded_file = st.file_uploader("Upload Excel (All Companies sheet)", type=["xlsx"])
+    st.title("All Companies Exclusion Filter – Only 'Company' Column (No BB/Bloomberg)")
 
-    header_row = 4  # Adjust as needed
+    uploaded_file = st.file_uploader("Upload Excel file (has 'All Companies' sheet)", type=["xlsx"])
+
+    # Adjust if your real column headers are on a different row
+    header_row = 4
 
     if uploaded_file:
         xls = pd.ExcelFile(uploaded_file)
         if "All Companies" not in xls.sheet_names:
-            st.error("No sheet called 'All Companies' found.")
+            st.error("No sheet named 'All Companies'.")
             return
 
+        # Load the sheet
         df_all = pd.read_excel(uploaded_file, sheet_name="All Companies", header=header_row)
-        excluded, retained, no_data = filter_all_companies(df_all)
 
+        # Run logic
+        excluded, retained, no_data = filter_all_companies(df_all)
         total_count = len(excluded) + len(retained) + len(no_data)
 
+        st.subheader("Statistics")
         st.write(f"**Total:** {total_count}")
         st.write(f"**Excluded:** {len(excluded)}")
         st.write(f"**Retained:** {len(retained)}")
         st.write(f"**No Data:** {len(no_data)}")
 
-        st.subheader("Excluded")
+        st.subheader("Excluded Companies")
         st.dataframe(excluded)
 
-        st.subheader("Retained")
+        st.subheader("Retained Companies")
         st.dataframe(retained)
 
-        st.subheader("No Data")
+        st.subheader("No Data Companies")
         st.dataframe(no_data)
 
-        # Download
+        # Export to Excel
         output = BytesIO()
         with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
             excluded.to_excel(writer, sheet_name="Excluded", index=False)
@@ -193,11 +209,13 @@ def main():
         output.seek(0)
 
         st.download_button(
-            "Download Exclusion Results",
-            output,
-            "All_Companies_Exclusion_Results.xlsx",
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            label="Download Exclusion Results",
+            data=output,
+            file_name="All_Companies_Exclusion_Results.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
+    else:
+        st.info("Please upload an Excel file first.")
 
 if __name__ == "__main__":
     main()
