@@ -40,8 +40,12 @@ def rename_columns(df):
     df = df.iloc[1:].reset_index(drop=True)
 
     rename_map = {
-        "Company": ["company"],  # Ensure we get the correct "Company" column dynamically
-        "GOGEL Tab": ["GOGEL Tab"]  # The key column for exclusion
+        "Company": ["company"],  
+        "GOGEL Tab": ["GOGEL Tab"],  
+        "Length of Pipelines under Development": ["length of pipelines", "pipeline under dev"],
+        "Liquefaction Capacity (Export)": ["liquefaction capacity (export)", "lng export capacity"],
+        "Regasification Capacity (Import)": ["regasification capacity (import)", "lng import capacity"],
+        "Total Capacity under Development": ["total capacity under development", "total dev capacity"]
     }
 
     for new_col, patterns in rename_map.items():
@@ -61,30 +65,71 @@ def filter_all_companies(df):
     # 1) Flatten headers, rename columns
     df = rename_columns(df)
 
-    # 2) Ensure "Company" and "GOGEL Tab" exist
+    # 2) Ensure key columns exist
     if "Company" not in df.columns:
         df["Company"] = None
     if "GOGEL Tab" not in df.columns:
         df["GOGEL Tab"] = ""
 
-    # 3) Exclude companies where "GOGEL Tab" contains "upstream"
-    df["Excluded"] = df["GOGEL Tab"].str.contains("upstream", case=False, na=False)
+    # 3) Ensure numeric columns exist
+    numeric_cols = [
+        "Length of Pipelines under Development",
+        "Liquefaction Capacity (Export)",
+        "Regasification Capacity (Import)",
+        "Total Capacity under Development"
+    ]
+    for c in numeric_cols:
+        if c not in df.columns:
+            df[c] = 0
 
-    # 4) Build Exclusion Reason
-    df["Exclusion Reason"] = df["Excluded"].apply(lambda x: "Upstream in GOGEL Tab" if x else "")
+    # 4) Convert numeric columns
+    for c in numeric_cols:
+        df[c] = (
+            df[c].astype(str)
+            .str.replace("%", "", regex=True)
+            .str.replace(",", "", regex=True)
+        )
+        df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0)
 
-    # 5) Identify No Data Companies (Empty "GOGEL Tab", Not Excluded)
+    # 5) Apply Exclusion Logic
+    df["Upstream_Exclusion_Flag"] = df["GOGEL Tab"].str.contains("upstream", case=False, na=False)
+    df["Midstream_Exclusion_Flag"] = (
+        (df["Length of Pipelines under Development"] > 0)
+        | (df["Liquefaction Capacity (Export)"] > 0)
+        | (df["Regasification Capacity (Import)"] > 0)
+        | (df["Total Capacity under Development"] > 0)
+    )
+    df["Excluded"] = df["Upstream_Exclusion_Flag"] | df["Midstream_Exclusion_Flag"]
+
+    # 6) Build Exclusion Reason
+    def get_exclusion_reason(row):
+        reasons = []
+        if row["Upstream_Exclusion_Flag"]:
+            reasons.append("Upstream in GOGEL Tab")
+        if row["Midstream_Exclusion_Flag"]:
+            reasons.append("Midstream Expansion > 0")
+        return "; ".join(reasons)
+    
+    df["Exclusion Reason"] = df.apply(get_exclusion_reason, axis=1)
+
+    # 7) Identify No Data Companies (All Numeric = 0, Not Excluded)
     def is_no_data(r):
-        return r["GOGEL Tab"].strip() == "" and not r["Excluded"]
+        return (
+            not r["Excluded"]
+            and (r["Length of Pipelines under Development"] == 0)
+            and (r["Liquefaction Capacity (Export)"] == 0)
+            and (r["Regasification Capacity (Import)"] == 0)
+            and (r["Total Capacity under Development"] == 0)
+        )
 
     no_data_mask = df.apply(is_no_data, axis=1)
 
-    # 6) Split into categories
+    # 8) Split into categories
     excluded_df = df[df["Excluded"]].copy()
     no_data_df = df[no_data_mask].copy()
     retained_df = df[~df["Excluded"] & ~no_data_mask].copy()
 
-    # 7) Keep only required columns
+    # 9) Keep only required columns
     final_cols = ["Company", "GOGEL Tab", "Exclusion Reason"]
     for c in final_cols:
         for d in [excluded_df, retained_df, no_data_df]:
@@ -98,7 +143,7 @@ def filter_all_companies(df):
 #########################
 
 def main():
-    st.title("All Companies Exclusion Analysis (Excluding Upstream)")
+    st.title("All Companies Exclusion Analysis (Excluding Upstream & Midstream Expansion)")
 
     uploaded_file = st.file_uploader("Upload Excel file", type=["xlsx"])
 
@@ -122,9 +167,9 @@ def main():
         total_companies = len(excluded) + len(retained) + len(no_data)
         st.subheader("Summary Statistics")
         st.write(f"**Total Companies Processed:** {total_companies}")
-        st.write(f"**Excluded Companies (Upstream in GOGEL Tab):** {len(excluded)}")
+        st.write(f"**Excluded Companies (Upstream & Midstream):** {len(excluded)}")
         st.write(f"**Retained Companies:** {len(retained)}")
-        st.write(f"**No Data Companies (Blank GOGEL Tab):** {len(no_data)}")
+        st.write(f"**No Data Companies:** {len(no_data)}")
 
         # Display DataFrames
         st.subheader("Excluded Companies")
