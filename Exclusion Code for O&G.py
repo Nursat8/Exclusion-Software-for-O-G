@@ -18,9 +18,9 @@ def flatten_multilevel_columns(df):
 def find_column(df, possible_matches, required=True):
     """Finds the first column matching any item in possible_matches."""
     for col in df.columns:
-        col_lower = col.strip().lower()
+        col_lower = col.strip().lower().replace("\n", " ")  # Handle multi-line headers
         for pattern in possible_matches:
-            pat_lower = pattern.strip().lower()
+            pat_lower = pattern.strip().lower().replace("\n", " ")
             if pat_lower in col_lower:
                 return col
     if required:
@@ -46,8 +46,8 @@ def rename_columns(df):
         "ISIN Equity": ["isin equity", "isin code"],
         "LEI": ["lei"],
         "Length of Pipelines under Development": ["length of pipelines", "pipeline under dev"],
-        "Liquefaction Capacity (Export)": ["liquefaction capacity (export)", "lng export capacity"],
-        "Regasification Capacity (Import)": ["regasification capacity (import)", "lng import capacity"],
+        "Liquefaction Capacity (Export)": ["liquefaction capacity (export)", "lng export capacity", "Liquefaction Capacity Export"],
+        "Regasification Capacity (Import)": ["regasification capacity (import)", "lng import capacity", "Regasification Capacity Import"],
         "Total Capacity under Development": ["total capacity under development", "total dev capacity"]
     }
 
@@ -143,7 +143,7 @@ def filter_all_companies(df):
 #########################
 
 def main():
-    st.title("Level 2 Exclusion O&G")
+    st.title("All Companies Exclusion Analysis (Excluding Upstream & Midstream Expansion)")
 
     uploaded_file = st.file_uploader("Upload Excel file", type=["xlsx"])
 
@@ -187,7 +187,7 @@ def main():
         st.download_button(
             "Download Processed File",
             output,
-            "Level 2 Exclusion O&G.xlsx",
+            "all_companies_exclusion.xlsx",
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
 
