@@ -42,6 +42,9 @@ def rename_columns(df):
     rename_map = {
         "Company": ["company"],  
         "GOGEL Tab": ["GOGEL Tab"],  
+        "BB Ticker": ["bb ticker", "bloomberg ticker"],
+        "ISIN Equity": ["isin equity", "isin code"],
+        "LEI": ["lei"],
         "Length of Pipelines under Development": ["length of pipelines", "pipeline under dev"],
         "Liquefaction Capacity (Export)": ["liquefaction capacity (export)", "lng export capacity"],
         "Regasification Capacity (Import)": ["regasification capacity (import)", "lng import capacity"],
@@ -66,23 +69,24 @@ def filter_all_companies(df):
     df = rename_columns(df)
 
     # 2) Ensure key columns exist
-    if "Company" not in df.columns:
-        df["Company"] = None
-    if "GOGEL Tab" not in df.columns:
-        df["GOGEL Tab"] = ""
+    required_columns = [
+        "Company", "GOGEL Tab", "BB Ticker", "ISIN Equity", "LEI",
+        "Length of Pipelines under Development",
+        "Liquefaction Capacity (Export)",
+        "Regasification Capacity (Import)",
+        "Total Capacity under Development"
+    ]
+    for col in required_columns:
+        if col not in df.columns:
+            df[col] = None if col in ["Company", "GOGEL Tab", "BB Ticker", "ISIN Equity", "LEI"] else 0
 
-    # 3) Ensure numeric columns exist
+    # 3) Convert numeric columns
     numeric_cols = [
         "Length of Pipelines under Development",
         "Liquefaction Capacity (Export)",
         "Regasification Capacity (Import)",
         "Total Capacity under Development"
     ]
-    for c in numeric_cols:
-        if c not in df.columns:
-            df[c] = 0
-
-    # 4) Convert numeric columns
     for c in numeric_cols:
         df[c] = (
             df[c].astype(str)
@@ -91,7 +95,7 @@ def filter_all_companies(df):
         )
         df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0)
 
-    # 5) Apply Exclusion Logic
+    # 4) Apply Exclusion Logic
     df["Upstream_Exclusion_Flag"] = df["GOGEL Tab"].str.contains("upstream", case=False, na=False)
     df["Midstream_Exclusion_Flag"] = (
         (df["Length of Pipelines under Development"] > 0)
@@ -101,7 +105,7 @@ def filter_all_companies(df):
     )
     df["Excluded"] = df["Upstream_Exclusion_Flag"] | df["Midstream_Exclusion_Flag"]
 
-    # 6) Build Exclusion Reason
+    # 5) Build Exclusion Reason
     def get_exclusion_reason(row):
         reasons = []
         if row["Upstream_Exclusion_Flag"]:
@@ -112,13 +116,13 @@ def filter_all_companies(df):
     
     df["Exclusion Reason"] = df.apply(get_exclusion_reason, axis=1)
 
-    # 7) Move all "No Data" companies into Retained
+    # 6) Move all "No Data" companies into Retained
     retained_df = df[~df["Excluded"]].copy()
     excluded_df = df[df["Excluded"]].copy()
 
-    # 8) Keep only required columns, including Midstream Expansion data
+    # 7) Keep only required columns, including Midstream Expansion data
     final_cols = [
-        "Company",
+        "Company", "BB Ticker", "ISIN Equity", "LEI",
         "GOGEL Tab",
         "Length of Pipelines under Development",
         "Liquefaction Capacity (Export)",
