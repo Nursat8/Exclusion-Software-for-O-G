@@ -160,6 +160,19 @@ def filter_exclusions_and_retained(upstream_df, midstream_df):
         on="Company",
         how="outer"  # keep all companies from both sheets
     )
+    # Convert Company to string and strip whitespace
+    combined["Company"] = combined["Company"].astype(str).str.strip()
+
+    # Define a set of junk values to drop
+    junk_values = {"0", ".", "", "n.a.", "na"}
+
+    def is_junk(val: str) -> bool:
+        """Return True if the company name is in junk_values (or other placeholders)."""
+        return val.lower() in junk_values
+
+    # Filter out nonsense rows
+    combined = combined[~combined["Company"].apply(is_junk)].copy()
+
 
     # --- D) Remove blank Company rows, remove duplicates ---
     combined["Company"] = combined["Company"].astype(str).str.strip()
