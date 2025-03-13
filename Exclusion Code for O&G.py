@@ -15,15 +15,13 @@ def flatten_multilevel_columns(df):
     ]
     return df
 
-def find_column(df, possible_matches, how="partial", required=True):
+def find_column(df, possible_matches, required=True):
     """Finds the first column matching any item in possible_matches."""
     for col in df.columns:
         col_lower = col.strip().lower()
         for pattern in possible_matches:
             pat_lower = pattern.strip().lower()
-            if how == "exact" and col_lower == pat_lower:
-                return col
-            elif how == "partial" and pat_lower in col_lower:
+            if pat_lower in col_lower:
                 return col
     if required:
         raise ValueError(
@@ -34,7 +32,7 @@ def find_column(df, possible_matches, how="partial", required=True):
 
 def rename_columns(df):
     """
-    Flatten multi-level headers, adjust row position so row 7 in Excel aligns to row 0 in pandas.
+    Flatten multi-level headers and ensure correct column detection.
     """
     df = flatten_multilevel_columns(df)
     
@@ -43,15 +41,30 @@ def rename_columns(df):
 
     rename_map = {
         "Company": ["company"],  # Ensuring we get the right "Company" column dynamically
-        "Fossil Fuel Share of Revenue": ["fossil fuel share of revenue", "fossil fuel share"],
-        "Length of Pipelines under Development": ["length of pipelines", "pipeline under dev"],
-        "Liquefaction Capacity (Export)": ["liquefaction capacity (export)", "lng export capacity"],
-        "Regasification Capacity (Import)": ["regasification capacity (import)", "lng import capacity"],
-        "Total Capacity under Development": ["total capacity under development", "total dev capacity"]
+        "Fossil Fuel Share of Revenue": [
+            "fossil fuel share of revenue",
+            "fossil fuel share"
+        ],
+        "Length of Pipelines under Development": [
+            "length of pipelines under development",
+            "pipeline under dev"
+        ],
+        "Liquefaction Capacity (Export)": [
+            "liquefaction capacity (export)",
+            "lng export capacity"
+        ],
+        "Regasification Capacity (Import)": [
+            "regasification capacity (import)",
+            "lng import capacity"
+        ],
+        "Total Capacity under Development": [
+            "total capacity under development",
+            "total dev capacity"
+        ]
     }
 
     for new_col, patterns in rename_map.items():
-        old_col = find_column(df, patterns, how="partial", required=False)
+        old_col = find_column(df, patterns, required=False)
         if old_col and old_col != new_col:
             df.rename(columns={old_col: new_col}, inplace=True)
 
@@ -153,7 +166,7 @@ def filter_all_companies(df):
 #########################
 
 def main():
-    st.title("All Companies Exclusion Analysis (Fix for Row 7)")
+    st.title("All Companies Exclusion Analysis (Fix for Multi-Row Headers)")
 
     uploaded_file = st.file_uploader("Upload Excel file", type=["xlsx"])
 
