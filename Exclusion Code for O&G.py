@@ -1,9 +1,5 @@
 import re
 import pandas as pd
-import streamlit as st
-import io
-from io import BytesIO
-import numpy as np
 
 def find_column(df, possible_matches, how="exact", required=True):
     """
@@ -74,7 +70,12 @@ def rename_columns(df, rename_map, how="exact"):
         if old_name:
             df.rename(columns={old_name: new_col_name}, inplace=True)
     return df
-# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # LEVEL 1# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # 
+
+import streamlit as st
+import pandas as pd
+import numpy as np
+import io
+from io import BytesIO
 
 # If you placed the utilities in the same file, just use them directly
 # Otherwise, uncomment and import:
