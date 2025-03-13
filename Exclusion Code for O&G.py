@@ -160,11 +160,29 @@ def filter_exclusions_and_retained(upstream_df, midstream_df):
         how="outer"
     )
 
-    # 1) Drop rows with blank or NaN company
-    #    If you prefer to classify blank-company rows as "No Data," 
-    #    skip the drop and handle them in no_data_cond instead.
-    combined["Company"] = combined["Company"].astype(str)
-    combined = combined[combined["Company"].str.strip() != ""]
+  # ...
+# After merging upstream & midstream into "combined"
+
+# A) Convert Company to string for consistency
+combined["Company"] = combined["Company"].astype(str).str.strip()
+
+# B) Define your "junk" or "nonsense" set for Company
+junk_values = {"", ".", "n.a.", "na", "0"}
+
+def is_nonsense_company(val: str) -> bool:
+    """Return True if 'val' is in junk_values or looks obviously junky."""
+    return val.lower() in junk_values
+
+# C) Filter out nonsense
+combined = combined[~combined["Company"].apply(is_nonsense_company)].copy()
+
+# D) Now proceed with Upstream_Exclusion_Flag, Midstream_Exclusion_Flag, etc.
+combined["Upstream_Exclusion_Flag"] = combined["Upstream_Exclusion_Flag"].fillna(False).astype(bool)
+combined["Midstream_Exclusion_Flag"] = combined["Midstream_Exclusion_Flag"].fillna(False).astype(bool)
+combined["Excluded"] = combined["Upstream_Exclusion_Flag"] | combined["Midstream_Exclusion_Flag"]
+
+# Build reason, etc.
+# ...
 
     # 2) Ensure flags are boolean
     combined["Upstream_Exclusion_Flag"] = combined["Upstream_Exclusion_Flag"].fillna(False).astype(bool)
