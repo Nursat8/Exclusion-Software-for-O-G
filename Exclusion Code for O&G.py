@@ -36,14 +36,14 @@ def rename_columns(df, rename_map, how="partial"):
 def filter_all_companies(df):
     """
     - Reads 'All Companies' sheet
-    - Uses the **correct 'Company' column**
+    - Uses **only the 'Company' column** (not 'Company Name in Bloomberg')
     - Applies exclusion criteria
-    - Outputs only required columns
+    - Keeps all rows, even if they are missing data
     """
 
     ########## 1) RENAME COLUMNS ##########
     rename_map = {
-        "Company": ["company"],  # Ensure we use the correct "Company" column!
+        "Company": ["company"],  # Ensuring we use the correct "Company" column!
         "Fossil Fuel Share of Revenue": ["fossil fuel share of revenue", "fossil fuel revenue"],
         "Length of Pipelines under Development": ["length of pipelines under development", "length of pipelines"],
         "Liquefaction Capacity (Export)": ["liquefaction capacity (export)", "lng export capacity"],
@@ -55,16 +55,7 @@ def filter_all_companies(df):
     }
     rename_columns(df, rename_map, how="partial")
 
-    ########## 2) REMOVE NONSENSE COMPANIES ##########
-    junk_values = {"", ".", "n.a.", "na", "0", "null"}
-
-    def is_nonsense_company(val):
-        return pd.isna(val) or str(val).strip().lower() in junk_values
-
-    df["Company"] = df["Company"].astype(str).str.strip()
-    df = df[~df["Company"].apply(is_nonsense_company)].copy()  # Drop nonsense rows
-
-    ########## 3) ENSURE REQUIRED COLUMNS EXIST ##########
+    ########## 2) ENSURE REQUIRED COLUMNS EXIST ##########
     needed_for_numeric = [
         "Fossil Fuel Share of Revenue",
         "Length of Pipelines under Development",
@@ -80,7 +71,7 @@ def filter_all_companies(df):
         if col not in df.columns:
             df[col] = None
 
-    ########## 4) CONVERT NUMERIC COLUMNS ##########
+    ########## 3) CONVERT NUMERIC COLUMNS ##########
     for col in needed_for_numeric:
         df[col] = (
             df[col]
@@ -90,7 +81,7 @@ def filter_all_companies(df):
         )
         df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
 
-    ########## 5) APPLY EXCLUSION CRITERIA ##########
+    ########## 4) APPLY EXCLUSION CRITERIA ##########
     df["Upstream_Exclusion_Flag"] = df["Fossil Fuel Share of Revenue"] > 0
     df["Midstream_Exclusion_Flag"] = (
         (df["Length of Pipelines under Development"] > 0)
@@ -100,7 +91,7 @@ def filter_all_companies(df):
     )
     df["Excluded"] = df["Upstream_Exclusion_Flag"] | df["Midstream_Exclusion_Flag"]
 
-    ########## 6) BUILD EXCLUSION REASON ##########
+    ########## 5) BUILD EXCLUSION REASON ##########
     reasons = []
     for _, row in df.iterrows():
         r = []
@@ -111,7 +102,7 @@ def filter_all_companies(df):
         reasons.append("; ".join(r))
     df["Exclusion Reason"] = reasons
 
-    ########## 7) IDENTIFY 'NO DATA' COMPANIES ##########
+    ########## 6) IDENTIFY 'NO DATA' COMPANIES ##########
     def is_no_data(row):
         numeric_zero = (
             (row["Fossil Fuel Share of Revenue"] == 0)
@@ -125,12 +116,12 @@ def filter_all_companies(df):
 
     no_data_mask = df.apply(is_no_data, axis=1)
 
-    ########## 8) SPLIT INTO FINAL CATEGORIES ##########
+    ########## 7) SPLIT INTO FINAL CATEGORIES ##########
     excluded_companies = df[df["Excluded"]].copy()
     no_data_companies = df[no_data_mask].copy()
     retained_companies = df[~df["Excluded"] & ~no_data_mask].copy()
 
-    ########## 9) KEEP ONLY REQUIRED COLUMNS ##########
+    ########## 8) KEEP ONLY REQUIRED COLUMNS ##########
     final_cols = [
         "Company", "BB Ticker", "ISIN Equity", "LEI",
         "Fossil Fuel Share of Revenue",
@@ -160,7 +151,7 @@ def filter_all_companies(df):
 ################################
 
 def main():
-    st.title("All Companies Exclusion Filter (Correct 'Company' Column)")
+    st.title("All Companies Exclusion Filter (Now Using Correct 'Company' Column)")
 
     uploaded_file = st.file_uploader("Upload Excel file with a sheet named 'All Companies'", type=["xlsx"])
 
