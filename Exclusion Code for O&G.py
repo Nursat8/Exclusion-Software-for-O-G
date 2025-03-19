@@ -140,10 +140,7 @@ def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_threshol
         )
         df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
 
-    # If values are 0 <= x <= 1, multiply by 100
-    if df[revenue_cols].max().max() <= 1:
-        df[revenue_cols] = df[revenue_cols] * 100
-
+ 
     # ---------- 5) Calculate total thresholds (optional) ----------
     for key, threshold_data in total_thresholds.items():
         selected_sectors = threshold_data["sectors"]
@@ -161,7 +158,7 @@ def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_threshol
         for sector, (exclude_flag, threshold_str) in sector_exclusions.items():
             if exclude_flag:
                 th = float(threshold_str) if threshold_str else 0.0
-                if row[sector] > th:
+                if row[sector] > th * 100:
                     reasons.append(f"{sector} Revenue Exceeded")
 
         # Check each custom total threshold
