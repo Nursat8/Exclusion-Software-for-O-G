@@ -210,7 +210,7 @@ def main():
         exclude = st.sidebar.checkbox(f"Exclude {sector_name}", value=False)
         threshold = ""
         if exclude:
-            threshold = st.sidebar.text_input(f"{sector_name} Revenue Threshold", "")
+            threshold = st.sidebar.text_input(f"{sector_name} Revenue Threshold (decimals)", "")
         return sector_name, (exclude, threshold)
 
     # For example, the 7 unconventionals:
