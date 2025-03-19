@@ -99,6 +99,7 @@ def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_threshol
         "BB Ticker":               ["bloomberg bb ticker", "bb ticker"],
         "ISIN equity":             ["isin codes isin equity", "isin equity"],
         "LEI":                     ["lei lei", "lei", "legal entity identifier"],
+        "Hydrocarbons Production":        ["hydrocarbons production", "hydrocarbons"],
         "Fracking Revenue":        ["fracking", "fracking revenue"],
         "Tar Sand Revenue":        ["tar sands", "tar sand revenue"],
         "Coalbed Methane Revenue": ["coalbed methane", "cbm revenue"],
@@ -217,6 +218,7 @@ def main():
 
     # For example, the 7 unconventionals:
     sector_exclusions = dict([
+        sector_exclusion_input("Hydrocarbons Production"),
         sector_exclusion_input("Fracking Revenue"),
         sector_exclusion_input("Tar Sand Revenue"),
         sector_exclusion_input("Coalbed Methane Revenue"),
