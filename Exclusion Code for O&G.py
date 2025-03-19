@@ -139,9 +139,9 @@ def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_threshol
             .str.replace(',', '', regex=True)
         )
         df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
- # If values are 0 <= x <= 1, multiply by 100
-    if df[revenue_cols].max().max() <= 1:
-        df[revenue_cols] = df[revenue_cols] * 100
+     # If values are 0 <= x <= 1, multiply by 100
+        if df[revenue_cols].max().max() <= 1:
+            df[revenue_cols] = df[revenue_cols] * 100
 
  
     # ---------- 5) Calculate total thresholds (optional) ----------
