@@ -243,7 +243,7 @@ def main():
         total_threshold = st.sidebar.text_input(
             f"Total Revenue Threshold {i+1} (%)",
             "",
-            key=f"threshold_{i}"
+            key=f"threshold_{i}"/100
         )
         if selected_sectors and total_threshold:
             total_thresholds[f"Custom Total Revenue {i+1}"] = {
