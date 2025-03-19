@@ -201,16 +201,16 @@ def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_threshol
 
 # -------------------------- STREAMLIT APP --------------------------
 def main():
-    st.title("Level 1 Exclusion Filter (All Companies - Dynamic Column Search)")
+    st.title("Level 1 Exclusion Filter for O&G")
     uploaded_file = st.file_uploader("Upload Excel file", type=["xlsx"])
 
-    st.sidebar.header("Set Exclusion Criteria")
+    st.sidebar.header("Set Exclusion Criteria (in Decimals and Percentages for Hydrocarbons")
 
     def sector_exclusion_input(sector_name):
         exclude = st.sidebar.checkbox(f"Exclude {sector_name}", value=False)
         threshold = ""
         if exclude:
-            threshold = st.sidebar.text_input(f"{sector_name} Revenue Threshold (decimals)", "")
+            threshold = st.sidebar.text_input(f"{sector_name} Revenue Threshold", "")
         return sector_name, (exclude, threshold)
 
     # For example, the 7 unconventionals:
