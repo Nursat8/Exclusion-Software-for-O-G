@@ -99,7 +99,6 @@ def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_threshol
         "BB Ticker":               ["bloomberg bb ticker", "bb ticker"],
         "ISIN equity":             ["isin codes isin equity", "isin equity"],
         "LEI":                     ["lei lei", "lei", "legal entity identifier"],
-        "Hydrocarbons Production": ["hydrocarbons", "hydrocarbons production"],
         "Fracking Revenue":        ["fracking", "fracking revenue"],
         "Tar Sand Revenue":        ["tar sands", "tar sand revenue"],
         "Coalbed Methane Revenue": ["coalbed methane", "cbm revenue"],
@@ -108,6 +107,10 @@ def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_threshol
         "Arctic Revenue":          ["arctic", "arctic revenue"],
         "Unconventional Production Revenue": ["unconventional production", "unconventional production revenue"]
     }
+    # ---- BEGIN EXTRA LINE #1: Add Hydrocarbons Production to rename_map
+    rename_map["Hydrocarbons Production"] = ["hydrocarbons production", "hydrocarbons"]
+    # ---- END EXTRA LINE #1
+
     df = rename_columns(df, rename_map, how="partial")
 
     # Ensure we have all columns. If missing, fill with NaN
@@ -218,14 +221,16 @@ def main():
 
     # For example, the 7 unconventionals:
     sector_exclusions = dict([
-        sector_exclusion_input("Hydrocarbons Production"),
         sector_exclusion_input("Fracking Revenue"),
         sector_exclusion_input("Tar Sand Revenue"),
         sector_exclusion_input("Coalbed Methane Revenue"),
         sector_exclusion_input("Extra Heavy Oil Revenue"),
         sector_exclusion_input("Ultra Deepwater Revenue"),
         sector_exclusion_input("Arctic Revenue"),
-        sector_exclusion_input("Unconventional Production Revenue")
+        sector_exclusion_input("Unconventional Production Revenue"),
+        # ---- BEGIN EXTRA LINE #2: Also allow “Hydrocarbons Production” to be excluded
+        sector_exclusion_input("Hydrocarbons Production")
+        # ---- END EXTRA LINE #2
     ])
 
     st.sidebar.header("Set Multiple Custom Total Revenue Thresholds")
