@@ -143,10 +143,6 @@ def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_threshol
         )
         df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
 
-    # If values are 0 <= x <= 1, multiply by 100
-    if df[revenue_cols].max().max() <= 1:
-        df[revenue_cols] = df[revenue_cols] * 100
-
     # ---------- 5) Calculate total thresholds (optional) ----------
     for key, threshold_data in total_thresholds.items():
         selected_sectors = threshold_data["sectors"]
@@ -216,7 +212,7 @@ def main():
         exclude = st.sidebar.checkbox(f"Exclude {sector_name}", value=False)
         threshold = ""
         if exclude:
-            threshold = st.sidebar.text_input(f"{sector_name} Revenue Threshold (%)", "")
+            threshold = st.sidebar.text_input(f"{sector_name} Revenue Threshold", "")
         return sector_name, (exclude, threshold)
 
     # For example, the 7 unconventionals:
