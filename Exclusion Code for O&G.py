@@ -176,19 +176,16 @@ def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_threshol
 
     # 11) Write output to Excel in memory
     output = BytesIO()
-    with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
-        retained_companies.to_excel(writer, sheet_name="Retained Companies", index=False)
-        excluded_companies.to_excel(writer, sheet_name="Excluded Companies", index=False)
-        companies_with_no_data.to_excel(writer, sheet_name="No Data Companies", index=False)
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        # Clean the BB Ticker column only for the output file
+        retained_clean = remove_equity_from_bb_ticker(retained_companies)
+        excluded_clean = remove_equity_from_bb_ticker(excluded_companies)
+        no_data_clean = remove_equity_from_bb_ticker(companies_with_no_data)
+    
+        retained_clean.to_excel(writer, sheet_name="Retained Companies", index=False)
+        excluded_clean.to_excel(writer, sheet_name="Excluded Companies", index=False)
+        no_data_clean.to_excel(writer, sheet_name="No Data Companies", index=False)
     output.seek(0)
-
-    stats = {
-        "Total Companies": len(df) + len(companies_with_no_data),
-        "Retained Companies": len(retained_companies),
-        "Excluded Companies": len(excluded_companies),
-        "Companies with No Data": len(companies_with_no_data),
-    }
-    return output, stats
 
 # -------------------------- STREAMLIT APP --------------------------
 def main():
