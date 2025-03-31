@@ -185,6 +185,7 @@ def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_threshol
         retained_clean.to_excel(writer, sheet_name="Retained Companies", index=False)
         excluded_clean.to_excel(writer, sheet_name="Excluded Companies", index=False)
         no_data_clean.to_excel(writer, sheet_name="No Data Companies", index=False)
+    output.seek(0)
         stats = {
             "Total Companies": len(df) + len(companies_with_no_data),
             "Retained Companies": len(retained_companies),
@@ -192,8 +193,6 @@ def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_threshol
             "Companies with No Data": len(companies_with_no_data)
         }
     return output, stats
-
-    output.seek(0)
 
 # -------------------------- STREAMLIT APP --------------------------
 def main():
