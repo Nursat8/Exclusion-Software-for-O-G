@@ -54,22 +54,21 @@ def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_threshol
     
     # 2) Flatten multi-level columns
     df.columns = [" ".join(map(str, col)).strip() for col in df.columns]
-    
-    # 3) Remove "Equity" from BB Ticker
-    #    (This ensures if the column has "XYZ Equity" or "XYZ   Equity", we remove it.)
-    if "BB Ticker" in df.columns:
-        # Convert to string, handle non-breaking spaces, remove "Equity" ignoring case,
-        # and strip any leftover whitespace.
-        df["BB Ticker"] = (
-            df["BB Ticker"]
-            .astype(str)
-            # Replace non-breaking spaces (Unicode \u00A0) with normal spaces
-            .str.replace(r"\u00A0", " ", regex=True)
-            # Remove "Equity" (ignoring case) plus any spaces around it
-            .str.replace(r"(?i)\s*Equity\s*", "", regex=True)
-              # Trim leading/trailing spaces
-            .str.strip()
-        )
+
+    # 3) "Equity" string remover in BB Ticker column    
+    def remove_equity_from_bb_ticker(df):
+        # Make a copy so that the original DataFrame is not modified.
+        df = df.copy()
+        if "BB Ticker" in df.columns:
+            df["BB Ticker"] = (
+                df["BB Ticker"]
+                .astype(str)
+                .str.replace(r"\u00A0", " ", regex=True)  # Replace non-breaking spaces
+                .str.replace(r"(?i)\s*Equity\s*", "", regex=True)  # Remove 'Equity' case-insensitively with surrounding spaces
+                .str.strip()
+            )
+        return df
+
 
     # 4) Dynamically rename columns if needed
     rename_map = {
@@ -174,21 +173,19 @@ def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_threshol
     # Reorder them the same way
     companies_with_no_data = companies_with_no_data[df.columns]
 
-    # 11) Write output to Excel in memory
+# ---------- 11) Write output to Excel in memory ----------
     output = BytesIO()
-    with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
-        retained_companies.to_excel(writer, sheet_name="Retained Companies", index=False)
-        excluded_companies.to_excel(writer, sheet_name="Excluded Companies", index=False)
-        companies_with_no_data.to_excel(writer, sheet_name="No Data Companies", index=False)
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        # Clean the BB Ticker column only for the output file
+        retained_clean = remove_equity_from_bb_ticker(retained_companies)
+        excluded_clean = remove_equity_from_bb_ticker(excluded_companies)
+        no_data_clean = remove_equity_from_bb_ticker(companies_with_no_data)
+    
+        retained_clean.to_excel(writer, sheet_name="Retained Companies", index=False)
+        excluded_clean.to_excel(writer, sheet_name="Excluded Companies", index=False)
+        no_data_clean.to_excel(writer, sheet_name="No Data Companies", index=False)
     output.seek(0)
 
-    stats = {
-        "Total Companies": len(df) + len(companies_with_no_data),
-        "Retained Companies": len(retained_companies),
-        "Excluded Companies": len(excluded_companies),
-        "Companies with No Data": len(companies_with_no_data),
-    }
-    return output, stats
 
 # -------------------------- STREAMLIT APP --------------------------
 def main():
