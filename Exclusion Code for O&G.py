@@ -56,9 +56,19 @@ def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_threshol
     df.columns = [" ".join(map(str, col)).strip() for col in df.columns]
     
     # 3) Remove "Equity" from BB Ticker
-    #    (This ensures if the column has "XYZ Equity" or "XYZ   Equity", we remove it.)
-    if "BB Ticker" in df.columns:
-        df["BB Ticker"] = df["BB Ticker"].astype(str).str.replace(r"\s*Equity", "", regex=True)
+    def remove_equity_from_bb_ticker(df):
+        # Make a copy so that the original DataFrame is not modified.
+        df = df.copy()
+        if "BB Ticker" in df.columns:
+            df["BB Ticker"] = (
+                df["BB Ticker"]
+                .astype(str)
+                .str.replace(r"\u00A0", " ", regex=True)  # Replace non-breaking spaces
+                .str.replace(r"(?i)\s*Equity\s*", "", regex=True)  # Remove 'Equity' case-insensitively with surrounding spaces
+                .str.strip()
+            )
+        return df
+
     
     # 4) Dynamically rename columns if needed
     rename_map = {
