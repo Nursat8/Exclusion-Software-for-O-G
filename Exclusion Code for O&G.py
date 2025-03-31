@@ -122,23 +122,22 @@ def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_threshol
     excluded_reasons = []
     for _, row in df.iterrows():
         reasons = []
-        # sector_exclusions is a dict like:
-        # { "Fracking Revenue": (True, "10"), "Arctic Revenue": (False, ""), ... }
-        # If user typed "10", that means 10%, but data is 0.15 for 15%.
-        # So we do row[sector] > 0.10 if threshold=10 => threshold/100.
+        # Process each revenue indicator specified in sector_exclusions.
+        # User inputs are in percentage (e.g., 10 means 10%),
+        # but the underlying data is in decimals (e.g., 0.15 for 15%).
         for sector, (exclude_flag, threshold_str) in sector_exclusions.items():
             if exclude_flag and threshold_str.strip():
                 try:
+                    # Convert user threshold to a decimal.
                     user_threshold_decimal = float(threshold_str) / 100.0
                     if row[sector] > user_threshold_decimal:
-                        # e.g. row[sector] = 0.15 => 15%
                         reasons.append(
                             f"{sector} Revenue Exceeded: {row[sector]*100:.2f}% > {float(threshold_str):.2f}%"
                         )
                 except ValueError:
-                    pass  # If user input is invalid, skip
+                    pass
 
-        # Check each custom total threshold
+        # Process each custom total threshold (same percentage logic applies)
         for key, threshold_data in total_thresholds.items():
             try:
                 threshold_value_decimal = float(threshold_data["threshold"]) / 100.0
@@ -152,6 +151,7 @@ def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_threshol
         excluded_reasons.append(", ".join(reasons))
 
     df["Exclusion Reason"] = excluded_reasons
+
 
     # 10) Split data into retained vs excluded
     retained_companies = df[df["Exclusion Reason"] == ""].copy()
