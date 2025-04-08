@@ -54,8 +54,8 @@ def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_threshol
     
     # 2) Flatten multi-level columns
     df.columns = [" ".join(map(str, col)).strip() for col in df.columns]
-    
-    # 3) Remove "Equity" from BB Ticker
+
+    # 3) "Equity" string remover in BB Ticker column    
     def remove_equity_from_bb_ticker(df):
         # Make a copy so that the original DataFrame is not modified.
         df = df.copy()
@@ -69,7 +69,7 @@ def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_threshol
             )
         return df
 
-    
+
     # 4) Dynamically rename columns if needed
     rename_map = {
         "Company": ["company name", "company"],
@@ -128,7 +128,7 @@ def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_threshol
         else:
             df[key] = 0.0
 
-    # 9) Apply exclusion logic
+# ---------- 9) Apply exclusion logic ----------
     excluded_reasons = []
     for _, row in df.iterrows():
         reasons = []
@@ -162,7 +162,6 @@ def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_threshol
 
     df["Exclusion Reason"] = excluded_reasons
 
-
     # 10) Split data into retained vs excluded
     retained_companies = df[df["Exclusion Reason"] == ""].copy()
     excluded_companies = df[df["Exclusion Reason"] != ""].copy()
@@ -174,7 +173,7 @@ def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_threshol
     # Reorder them the same way
     companies_with_no_data = companies_with_no_data[df.columns]
 
-    # 11) Write output to Excel in memory
+# ---------- 11) Write output to Excel in memory ----------
     output = BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         # Clean the BB Ticker column only for the output file
@@ -185,14 +184,15 @@ def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_threshol
         retained_clean.to_excel(writer, sheet_name="Retained Companies", index=False)
         excluded_clean.to_excel(writer, sheet_name="Excluded Companies", index=False)
         no_data_clean.to_excel(writer, sheet_name="No Data Companies", index=False)
-    output.seek(0)
-    stats = {
+        stats = {
         "Total Companies": len(df) + len(companies_with_no_data),
         "Retained Companies": len(retained_companies),
         "Excluded Companies": len(excluded_companies),
         "Companies with No Data": len(companies_with_no_data)
-        }
+    }
     return output, stats
+    output.seek(0)
+
 
 # -------------------------- STREAMLIT APP --------------------------
 def main():
