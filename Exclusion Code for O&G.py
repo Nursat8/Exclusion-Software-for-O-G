@@ -214,14 +214,14 @@ def main():
 
     # Define the sectors for user input
     sector_list = [
-        "Hydrocarbons Production (%)",
-        "Fracking Revenue (%)",
-        "Tar Sand Revenue (%)",
-        "Coalbed Methane Revenue (%)",
-        "Extra Heavy Oil Revenue (%)",
-        "Ultra Deepwater Revenue (%)",
-        "Arctic Revenue (%)",
-        "Unconventional Production Revenue (%)",
+        "Hydrocarbons Production",
+        "Fracking Revenue",
+        "Tar Sand Revenue",
+        "Coalbed Methane Revenue",
+        "Extra Heavy Oil Revenue",
+        "Ultra Deepwater Revenue",
+        "Arctic Revenue",
+        "Unconventional Production Revenue",
     ]
     sector_exclusions = dict(sector_exclusion_input(s) for s in sector_list)
 
