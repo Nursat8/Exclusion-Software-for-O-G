@@ -47,13 +47,20 @@ def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_threshol
     if uploaded_file is None:
         return None, None
     
-    # 1) Read the Excel file
-    xls = pd.ExcelFile(uploaded_file)
-    # Adjust headers if your real file differs
-    df = xls.parse("All Companies", header=[3, 4])
-    
-    # 2) Flatten multi-level columns
-    df.columns = [" ".join(map(str, col)).strip() for col in df.columns]
+        # 1) Read the Excel file
+     xls = pd.ExcelFile(uploaded_file)
+     # Adjust headers if your real file differs
+     df = xls.parse("All Companies", header=[3, 4])
+     
+     # 2) Flatten multi-level columns
+     df.columns = [" ".join(map(str, col)).strip() for col in df.columns]
++    # 2.1) Drop the Parent Company column so "company" never matches it
++    df = df.loc[:, ~df.columns.str.lower().str.startswith("parent company")]
+     
+     # 3) Remove "Equity" from BB Ticker
+     def remove_equity_from_bb_ticker(df):
+         …
+
     
     # 3) Remove "Equity" from BB Ticker
     def remove_equity_from_bb_ticker(df):
