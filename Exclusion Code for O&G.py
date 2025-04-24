@@ -54,7 +54,8 @@ def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_threshol
     
     # 2) Flatten multi-level columns
     df.columns = [" ".join(map(str, col)).strip() for col in df.columns]
-    
+    # 2.1) Drop any Parent Company column so we never pick up its values by mistake
+    df = df.loc[:, ~df.columns.str.lower().str.startswith("parent company")]
     # 3) Remove "Equity" from BB Ticker
     def remove_equity_from_bb_ticker(df):
         # Make a copy so that the original DataFrame is not modified.
