@@ -7,27 +7,34 @@ import streamlit as st
 # ---------------- Helper Functions ----------------
 
 def flatten_multilevel_columns(df):
-    df.columns = [" ".join(str(l).strip() for l in col).strip() for col in df.columns]
+    df.columns = [
+        " ".join(str(l).strip() for l in col).strip()
+        for col in df.columns
+    ]
     return df
 
 def find_column(df, patterns, how="partial", required=True):
+    """Normalize and find a column by exact, partial, or regex match."""
     norm_map = {
         col: re.sub(r"\s+", " ", col.strip().lower().replace("\n", " "))
         for col in df.columns
     }
-    pats = [re.sub(r"\s+", " ", p.strip().lower().replace("\n", " ")) for p in patterns]
-    # exact
+    pats = [
+        re.sub(r"\s+", " ", p.strip().lower().replace("\n", " "))
+        for p in patterns
+    ]
+    # 1) exact
     for pat in pats:
         for col, norm in norm_map.items():
             if norm == pat:
                 return col
-    # partial
+    # 2) partial
     if how == "partial":
-        for pat in pats:
-            for col, norm in norm_map.items():
+        for col, norm in norm_map.items():
+            for pat in pats:
                 if pat in norm:
                     return col
-    # regex
+    # 3) regex
     if how == "regex":
         for pattern in patterns:
             for col in df.columns:
@@ -38,6 +45,7 @@ def find_column(df, patterns, how="partial", required=True):
     return None
 
 def rename_columns(df, rename_map):
+    """Rename columns based on a mapping new_name → [possible substrings]."""
     for new, pats in rename_map.items():
         old = find_column(df, pats, how="partial", required=False)
         if old and old != new:
@@ -61,10 +69,12 @@ def remove_equity_from_bb_ticker(df):
 def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_thresholds):
     xls = pd.ExcelFile(uploaded_file)
     df = xls.parse("All Companies", header=[3,4])
-    df.columns = [" ".join(map(str, c)).strip() for c in df.columns]
+    df.columns = [" ".join(map(str,c)).strip() for c in df.columns]
+    # drop parent company
     df = df.loc[:, ~df.columns.str.lower().str.startswith("parent company")]
     df = remove_equity_from_bb_ticker(df)
 
+    # rename the key columns
     rename_map = {
         "Company": ["company name","company"],
         "BB Ticker": ["bb ticker"],
@@ -81,40 +91,43 @@ def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_threshol
     }
     df = rename_columns(df, rename_map)
 
-    # Ensure columns exist
+    # ensure every column in rename_map exists
     needed = list(rename_map.keys())
-    for col in needed:
-        if col not in df.columns:
-            df[col] = np.nan
+    for c in needed:
+        if c not in df.columns:
+            df[c] = np.nan
 
-    # No-data slice
+    # split out the “no data” rows
     revenue_cols = needed[4:]
     no_data = df[df[revenue_cols].isnull().all(axis=1)].copy()
     df = df.dropna(subset=revenue_cols, how="all")
 
-    # Clean & numeric
+    # clean & coerce numeric
     for c in revenue_cols:
-        df[c] = pd.to_numeric(
-            df[c].astype(str).str.replace("%","",regex=True).str.replace(",","",regex=True),
-            errors="coerce"
-        ).fillna(0)
+        df[c] = (
+            df[c]
+            .astype(str)
+            .str.replace("%","",regex=True)
+            .str.replace(",","",regex=True)
+        )
+        df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0)
 
-    # Custom totals
-    for key, info in total_thresholds.items():
+    # custom totals
+    for key,info in total_thresholds.items():
         secs = [s for s in info["sectors"] if s in df.columns]
         df[key] = df[secs].sum(axis=1) if secs else 0.0
 
-    # Build Level1 Reason
+    # build the Level 1 exclusion reason
     reasons = []
-    for _, r in df.iterrows():
+    for _,r in df.iterrows():
         parts = []
-        for sector, (flag, thr) in sector_exclusions.items():
+        for sector,(flag,thr) in sector_exclusions.items():
             if flag and thr.strip():
                 try:
                     if r[sector] > float(thr)/100:
                         parts.append(f"{sector} > {thr}%")
                 except: pass
-        for key, info in total_thresholds.items():
+        for key,info in total_thresholds.items():
             t = info.get("threshold","").strip()
             if t:
                 try:
@@ -127,10 +140,22 @@ def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_threshol
     excluded = df[df["Reason"]!=""].copy()
     retained = df[df["Reason"]==""].copy()
 
-    # Rename first custom total
+    # rename “Custom Total 1” → “Custom Total Revenue”
     if "Custom Total 1" in df.columns:
         for d in (excluded, retained, no_data):
             d.rename(columns={"Custom Total 1":"Custom Total Revenue"}, inplace=True)
+
+    # fix any companies that parsed as “.” by pulling from the raw sheet
+    raw = xls.parse("All Companies", header=[3,4]).iloc[:,[6]]  # column 6 is the real Company col
+    raw = flatten_multilevel_columns(raw)
+    raw = raw.loc[:, ~raw.columns.str.lower().str.startswith("parent company")]
+    raw.columns = ["Company"]
+    raw["Company"] = raw["Company"].fillna("").astype(str)
+    # align indices
+    for d in (excluded, retained, no_data):
+        d.reset_index(drop=True, inplace=True)
+        d["Company"] = d["Company"].replace(".", np.nan)
+        d["Company"].fillna(raw["Company"], inplace=True)
 
     return excluded, retained, no_data
 
@@ -142,36 +167,38 @@ def filter_all_companies(df):
     df = df.iloc[1:].reset_index(drop=True)
 
     rename_map = {
-        "Company":["company"],
-        "GOGEL Tab":["gogel tab"],
-        "BB Ticker":["bb ticker"],
-        "ISIN equity":["isin equity"],
-        "LEI":["lei"],
-        "Length of Pipelines under Development":["length of pipelines"],
-        "Liquefaction Capacity (Export)":["liquefaction capacity"],
-        "Regasification Capacity (Import)":["regasification capacity"],
-        "Total Capacity under Development":["total capacity under development"]
+        "Company": ["company"],
+        "GOGEL Tab": ["gogel tab"],
+        "BB Ticker": ["bb ticker"],
+        "ISIN equity": ["isin equity"],
+        "LEI": ["lei"],
+        "Length of Pipelines under Development": ["length of pipelines"],
+        "Liquefaction Capacity (Export)": ["liquefaction capacity"],
+        "Regasification Capacity (Import)": ["regasification capacity"],
+        "Total Capacity under Development": ["total capacity under development"]
     }
     df = rename_columns(df, rename_map)
 
+    # ensure columns
     req = list(rename_map.keys())
     for c in req:
         df[c] = df.get(c, np.nan)
 
+    # numeric
     for c in req[5:]:
         df[c] = pd.to_numeric(
             df[c].astype(str).str.replace(",","",regex=True),
             errors="coerce"
         ).fillna(0)
 
-    df["Upstream_Flag"]  = df["GOGEL Tab"].str.contains("upstream",case=False,na=False)
+    df["Upstream_Flag"]  = df["GOGEL Tab"].str.contains("upstream", case=False, na=False)
     df["Midstream_Flag"] = (
-        (df["Length of Pipelines under Development"]>0)
-        |(df["Liquefaction Capacity (Export)"]>0)
-        |(df["Regasification Capacity (Import)"]>0)
-        |(df["Total Capacity under Development"]>0)
+        (df["Length of Pipelines under Development"] > 0)
+        |(df["Liquefaction Capacity (Export)"] > 0)
+        |(df["Regasification Capacity (Import)"] > 0)
+        |(df["Total Capacity under Development"] > 0)
     )
-    df["Excluded"] = df["Upstream_Flag"]|df["Midstream_Flag"]
+    df["Excluded"] = df["Upstream_Flag"] | df["Midstream_Flag"]
     df["Exclusion Reason"] = df.apply(
         lambda r: "; ".join(p for p in (
             "Upstream in GOGEL Tab" if r["Upstream_Flag"] else None,
@@ -185,7 +212,7 @@ def filter_upstream_companies(df):
     df = flatten_multilevel_columns(df)
     df = df.loc[:, ~df.columns.str.lower().str.startswith("parent company")]
 
-    # Standardize Company
+    # pick and rename the real Company column
     comp = find_column(df, ["company"], how="partial", required=True)
     df.rename(columns={comp:"Company"}, inplace=True)
 
@@ -194,9 +221,15 @@ def filter_upstream_companies(df):
     shortterm = find_column(df, ["short-term expansion ≥20 mmboe"], how="partial", required=True)
     capex10   = find_column(df, ["exploration capex ≥10 MUSD"], how="partial", required=True)
 
-    # Numeric coercion
-    df[resources] = pd.to_numeric(df[resources].astype(str).str.replace(",","",regex=True), errors="coerce").fillna(0)
-    df[capex_avg] = pd.to_numeric(df[capex_avg].astype(str).str.replace(",","",regex=True), errors="coerce").fillna(0)
+    # numeric
+    df[resources] = pd.to_numeric(
+        df[resources].astype(str).str.replace(",","",regex=True),
+        errors="coerce"
+    ).fillna(0)
+    df[capex_avg] = pd.to_numeric(
+        df[capex_avg].astype(str).str.replace(",","",regex=True),
+        errors="coerce"
+    ).fillna(0)
 
     df["F2_Res"]   = df[resources] > 0
     df["F2_Avg"]   = df[capex_avg] > 0
@@ -209,15 +242,14 @@ def filter_upstream_companies(df):
             "Resources > 0"       if r["F2_Res"] else None,
             "3-yr CAPEX avg > 0"  if r["F2_Avg"] else None,
             "Short-Term Expansion = Yes" if r["F2_ST"] else None,
-            "CAPEX ≥10 MUSD = Yes"     if r["F2_10M"] else None
+            "CAPEX ≥10 MUSD = Yes"     if r["F2_10M"] else None,
         ) if p), axis=1
     )
 
     exc = df[df["Excluded"]].copy()
     ret = df[~df["Excluded"]].copy()
-
-    return exc[["Company",resources,capex_avg,shortterm,capex10,"Exclusion Reason"]], \
-           ret[["Company",resources,capex_avg,shortterm,capex10,"Exclusion Reason"]]
+    return exc[["Company", resources, capex_avg, shortterm, capex10, "Exclusion Reason"]], \
+           ret[["Company", resources, capex_avg, shortterm, capex10, "Exclusion Reason"]]
 
 # ---------------- Excel Helpers ----------------
 
@@ -237,7 +269,7 @@ def to_excel_l1(exc,ret,no_data):
     buf.seek(0)
     return buf
 
-def to_excel_l2(exc_all, exc1, exc2, ret1, ret2, exc_up, ret_up):
+def to_excel_l2(all_exc, exc1, exc2, ret1, ret2, exc_up, ret_up):
     cols = [
         "Company","BB Ticker","ISIN equity","LEI",
         "Hydrocarbons Production (%)","Fracking Revenue","Tar Sand Revenue",
@@ -252,13 +284,13 @@ def to_excel_l2(exc_all, exc1, exc2, ret1, ret2, exc_up, ret_up):
     ]
     buf = BytesIO()
     with pd.ExcelWriter(buf, engine="xlsxwriter") as w:
-        exc_all.reindex(columns=cols).to_excel(w,"All Excluded",index=False)
-        exc1   .reindex(columns=cols).to_excel(w,"Excluded Level 1",index=False)
-        exc2   .reindex(columns=cols).to_excel(w,"Excluded Level 2",index=False)
-        ret1   .reindex(columns=cols).to_excel(w,"Retained Level 1",index=False)
-        ret2   .reindex(columns=cols).to_excel(w,"Retained Level 2",index=False)
-        exc_up .reindex(columns=cols).to_excel(w,"Upstream Excluded",index=False)
-        ret_up .reindex(columns=cols).to_excel(w,"Upstream Retained",index=False)
+        all_exc .reindex(columns=cols).to_excel(w, "All Excluded Companies", index=False)
+        exc1    .reindex(columns=cols).to_excel(w, "Excluded Level 1", index=False)
+        exc2    .reindex(columns=cols).to_excel(w, "Excluded Level 2", index=False)
+        ret1    .reindex(columns=cols).to_excel(w, "Retained Level 1", index=False)
+        ret2    .reindex(columns=cols).to_excel(w, "Retained Level 2", index=False)
+        exc_up  .reindex(columns=cols).to_excel(w, "Upstream Excluded", index=False)
+        ret_up  .reindex(columns=cols).to_excel(w, "Upstream Retained", index=False)
     buf.seek(0)
     return buf
 
@@ -266,17 +298,17 @@ def to_excel_l2(exc_all, exc1, exc2, ret1, ret2, exc_up, ret_up):
 
 def main():
     st.title("Level 1 & Level 2 Exclusion Filter for O&G")
-    uploaded_file = st.file_uploader("Upload Excel file", type=["xlsx"])
+    uploaded = st.file_uploader("Upload Excel file", type=["xlsx"])
 
-    # Level 1 sidebar
+    # Level 1 Settings
     st.sidebar.header("Level 1 Settings")
-    sector_list = [
+    sectors = [
         "Hydrocarbons Production (%)","Fracking Revenue","Tar Sand Revenue",
         "Coalbed Methane Revenue","Extra Heavy Oil Revenue","Ultra Deepwater Revenue",
         "Arctic Revenue","Unconventional Production Revenue",
     ]
     sector_excs = {}
-    for s in sector_list:
+    for s in sectors:
         chk = st.sidebar.checkbox(f"Exclude {s}")
         thr = ""
         if chk:
@@ -287,18 +319,18 @@ def main():
     total_thresholds = {}
     n = st.sidebar.number_input("How many totals?",1,5,1)
     for i in range(n):
-        sels = st.sidebar.multiselect(f"Sectors for Total {i+1}", sector_list, key=f"sel{i}")
+        sels = st.sidebar.multiselect(f"Sectors for Total {i+1}", sectors, key=f"sel{i}")
         thr  = st.sidebar.text_input(f"Threshold {i+1} (%)", key=f"thr{i}")
         if sels and thr:
-            total_thresholds[f"Custom Total {i+1}"]={"sectors":sels,"threshold":thr}
+            total_thresholds[f"Custom Total {i+1}"] = {"sectors":sels,"threshold":thr}
 
     # Run Level 1
     if st.sidebar.button("Run Level 1 Exclusion"):
-        if not uploaded_file:
-            st.warning("Upload a file first.")
+        if not uploaded:
+            st.warning("Please upload a file first.")
         else:
-            exc1, ret1, no1 = filter_companies_by_revenue(uploaded_file, sector_excs, total_thresholds)
-            st.success("Level 1 done")
+            exc1, ret1, no1 = filter_companies_by_revenue(uploaded, sector_excs, total_thresholds)
+            st.success("Level 1 complete")
             st.download_button(
                 "Download Level 1 Results",
                 data=to_excel_l1(exc1, ret1, no1),
@@ -308,47 +340,72 @@ def main():
 
     st.markdown("---")
     st.header("Level 2 Exclusion")
-    st.write("Applies All-Companies + Upstream filters and merges duplicates.")
+    st.write("Will apply All-Companies + Upstream filters, merge duplicates, and pull in all missing data points.")
 
     if st.button("Run Level 2 Exclusion"):
-        if not uploaded_file:
-            st.warning("Upload a file first.")
+        if not uploaded:
+            st.warning("Please upload a file first.")
             return
 
-        # Re-run Level 1 to get exc1, ret1
-        exc1, ret1, no1 = filter_companies_by_revenue(uploaded_file, sector_excs, total_thresholds)
+        # 1) Re-run Level 1 so we have the full df_l1_all
+        exc1, ret1, no1 = filter_companies_by_revenue(uploaded, sector_excs, total_thresholds)
+        df_l1_all = pd.concat([exc1, ret1, no1], ignore_index=True)
 
-        # All Companies filter
-        df_all = pd.read_excel(uploaded_file, "All Companies", header=[3,4])
+        # 2) All-Companies Level 2
+        df_all = pd.read_excel(uploaded, "All Companies", header=[3,4])
         exc_all, ret_all = filter_all_companies(df_all)
 
-        # Upstream filter
-        df_up = pd.read_excel(uploaded_file, "Upstream", header=[3,4])
+        # 3) Upstream Level 2
+        df_up = pd.read_excel(uploaded, "Upstream", header=[3,4])
         exc_up, ret_up = filter_upstream_companies(df_up)
 
-        # Merge Level 2 excluded
-        merged = pd.concat([
-            exc_all[["Company","Exclusion Reason"]],
-            exc_up[["Company","Exclusion Reason"]]
-        ])
-        merged_exc = (
-            merged
-            .groupby("Company")["Exclusion Reason"]
-            .apply(lambda rs: "; ".join(sorted(set("; ".join(rs).split("; ")))))
-            .reset_index()
+        # 4) Build “All Excluded Companies” = union of exc1 + exc_all + exc_up
+        union = pd.concat([
+            exc1[["Company"]],
+            exc_all[["Company"]],
+            exc_up[["Company"]]
+        ]).drop_duplicates()
+        # merge in L1 metadata
+        union = union.merge(df_l1_all, on="Company", how="left")
+        # merge in L2 All-Companies reason
+        union = union.merge(
+            exc_all[["Company","Exclusion Reason"]].rename(columns={"Exclusion Reason":"L2_Reason_AC"}),
+            on="Company", how="left"
+        )
+        # merge in L2 Upstream reason
+        union = union.merge(
+            exc_up[["Company","Exclusion Reason"]].rename(columns={"Exclusion Reason":"L2_Reason_UP"}),
+            on="Company", how="left"
+        )
+        # combine final Exclusion Reason
+        union["Exclusion Reason"] = union[["L2_Reason_AC","L2_Reason_UP"]].fillna("").agg("; ".join, axis=1).str.replace(r"(; )+","; ").str.strip("; ")
+        union.drop(columns=["L2_Reason_AC","L2_Reason_UP"], inplace=True)
+
+        # 5) Retained Level 2
+        all_names = set(df_l1_all["Company"])
+        exc2_names = set(union["Company"])
+        ret2 = pd.DataFrame({"Company":[c for c in all_names if c not in exc2_names]})
+        ret2 = ret2.merge(df_l1_all, on="Company", how="left")
+
+        # 6) Now fill in Upstream‐specific for exc_up & ret_up by merging with df_l1_all
+        exc_up_full = exc_up.merge(df_l1_all, on="Company", how="left")
+        ret_up_full = ret_up.merge(df_l1_all, on="Company", how="left")
+
+        # 7) Finally call to_excel_l2
+        buf = to_excel_l2(
+            all_exc   = union,
+            exc1      = exc1,
+            exc2      = exc_all.assign(**{"Exclusion Reason":exc_all["Exclusion Reason"]})
+                                   .merge(df_l1_all, on="Company", how="left"),
+            ret1      = ret1,
+            ret2      = ret2,
+            exc_up    = exc_up_full,
+            ret_up    = ret_up_full
         )
 
-        # Retained Level 2
-        all_comps = (
-            set(exc_all["Company"]) | set(ret_all["Company"]) |
-            set(exc_up["Company"])  | set(ret_up["Company"])
-        )
-        ret2 = pd.DataFrame({"Company":[c for c in all_comps if c not in set(merged_exc["Company"])]})
-
-        buf = to_excel_l2(exc_all, exc1, merged_exc, ret1, ret2, exc_up, ret_up)
-        st.success("Level 2 done")
+        st.success("Level 2 complete")
         st.download_button(
-            "Download Combined Results",
+            "Download Combined Level 1 & 2 Results",
             data=buf,
             file_name="O&G_Level1_Level2_Exclusion.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -356,4 +413,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
