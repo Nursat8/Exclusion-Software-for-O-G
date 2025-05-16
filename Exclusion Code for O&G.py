@@ -1,7 +1,6 @@
 import re
 import pandas as pd
 import numpy as np
-import io
 from io import BytesIO
 import streamlit as st
 
@@ -92,9 +91,10 @@ def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_threshol
     # 5) “No Data” slice
     revenue_cols = needed[4:]
     no_data = df[df[revenue_cols].isnull().all(axis=1)].copy()
+    # Drop rows that have all-null revenues
     df = df.dropna(subset=revenue_cols, how="all")
 
-    # 6) Clean & numeric
+    # 6) Clean & convert to numeric
     for c in revenue_cols:
         df[c] = (
             df[c].astype(str)
@@ -118,14 +118,16 @@ def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_threshol
                     dec = float(thresh)/100
                     if row[sector] > dec:
                         parts.append(f"{sector} > {float(thresh):.1f}%")
-                except: pass
+                except:
+                    pass
         for key, info in total_thresholds.items():
             if info.get("threshold","").strip():
                 try:
                     dec = float(info["threshold"])/100
                     if row[key] > dec:
                         parts.append(f"{key} > {float(info['threshold']):.1f}%")
-                except: pass
+                except:
+                    pass
         reasons.append("; ".join(parts))
     df["Exclusion Reason"] = reasons
 
@@ -133,13 +135,20 @@ def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_threshol
     excluded = df[df["Exclusion Reason"] != ""].copy()
     retained = df[df["Exclusion Reason"] == ""].copy()
 
-    # 10) Output Excel
+    # 10) Write output to Excel in memory
     output = BytesIO()
-    with pd.ExcelWriter(output, engine="xlsxwriter") as w:
-        remove_equity_from_bb_ticker(retained).to_excel(w, sheet_name="L1 Retained", index=False)
-        remove_equity_from_bb_ticker(excluded).to_excel(w, sheet_name="L1 Excluded", index=False)
-        no_data = no_data[df.columns]  # reorder
-        remove_equity_from_bb_ticker(no_data).to_excel(w, sheet_name="L1 No Data", index=False)
+    with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
+        retained_clean = remove_equity_from_bb_ticker(retained)
+        excluded_clean = remove_equity_from_bb_ticker(excluded)
+        # ensure the No-Data sheet has all columns
+        no_data = no_data.reindex(columns=df.columns)
+        if "Exclusion Reason" not in no_data.columns:
+            no_data["Exclusion Reason"] = ""
+        no_data_clean = remove_equity_from_bb_ticker(no_data)
+
+        retained_clean.to_excel(writer, sheet_name="L1 Retained", index=False)
+        excluded_clean.to_excel(writer, sheet_name="L1 Excluded", index=False)
+        no_data_clean.to_excel(writer, sheet_name="L1 No Data", index=False)
     output.seek(0)
 
     stats = {
@@ -153,12 +162,9 @@ def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_threshol
 # -------------------------- Level 2 Exclusion --------------------------
 
 def filter_all_companies(df):
-    """All‐Companies Level 2 filter (unchanged)."""
     df = flatten_multilevel_columns(df)
     df = df.loc[:, ~df.columns.str.lower().str.startswith("parent company")]
     df = df.iloc[1:].reset_index(drop=True)
-
-    # rename map (same as before)
     rename_map = {
         "Company": ["company"],
         "GOGEL Tab": ["gogel tab"],
@@ -171,14 +177,10 @@ def filter_all_companies(df):
         "Total Capacity under Development": ["total capacity under development"]
     }
     df = rename_columns(df, rename_map, how="partial")
-
-    # ensure columns
     req = list(rename_map.keys())
     for c in req:
         if c not in df.columns:
             df[c] = 0 if c.startswith(("Length","Liquefaction","Regasification","Total")) else None
-
-    # numeric conversion
     num_cols = req[5:]
     for c in num_cols:
         df[c] = (
@@ -187,8 +189,6 @@ def filter_all_companies(df):
                  .str.replace(",","",regex=True)
         )
         df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0)
-
-    # flags
     df["Upstream_Excl"] = df["GOGEL Tab"].str.contains("upstream", case=False, na=False)
     df["Midstream_Excl"] = (
         (df["Length of Pipelines under Development"] > 0)
@@ -197,35 +197,28 @@ def filter_all_companies(df):
         | (df["Total Capacity under Development"] > 0)
     )
     df["Excluded"] = df["Upstream_Excl"] | df["Midstream_Excl"]
-
-    def reason_all(row):
-        parts = []
-        if row["Upstream_Excl"]: parts.append("Upstream in GOGEL Tab")
-        if row["Midstream_Excl"]: parts.append("Midstream Expansion > 0")
-        return "; ".join(parts)
-    df["Exclusion Reason"] = df.apply(reason_all, axis=1)
-
+    df["Exclusion Reason"] = df.apply(
+        lambda r: "; ".join(
+            p for p in (
+                "Upstream in GOGEL Tab" if r["Upstream_Excl"] else None,
+                "Midstream Expansion > 0" if r["Midstream_Excl"] else None
+            ) if p
+        ), axis=1
+    )
     excluded = df[df["Excluded"]].copy()
     retained = df[~df["Excluded"]].copy()
     cols = req + ["Exclusion Reason"]
     return excluded[cols], retained[cols]
 
 def filter_upstream_companies(df):
-    """Upstream sheet Level 2 filter with the four flags."""
     df = flatten_multilevel_columns(df)
     df = df.loc[:, ~df.columns.str.lower().str.startswith("parent company")]
-
-    # find cols
     resources_col   = find_column(df, ["resources under development and field evaluation"], how="partial")
     capex_avg_col   = find_column(df, ["exploration capex 3-year average"], how="partial")
     short_term_col  = find_column(df, ["short-term expansion ≥20 mmboe"], how="partial")
     exp_capex10_col = find_column(df, ["exploration capex ≥10 musd"], how="partial")
-
-    # numeric coercion
     for c in (resources_col, capex_avg_col):
         df[c] = pd.to_numeric(df[c].astype(str).str.replace(",","",regex=True), errors="coerce")
-
-    # flags
     df["Resources_Excl"]      = df[resources_col] > 0
     df["CAPEX_Avg_Excl"]      = df[capex_avg_col] > 0
     df["ShortTerm_Excl"]      = df[short_term_col].astype(str).str.strip().str.lower().eq("yes")
@@ -233,16 +226,16 @@ def filter_upstream_companies(df):
     df["Excluded"] = df[[
         "Resources_Excl","CAPEX_Avg_Excl","ShortTerm_Excl","Exploration10M_Excl"
     ]].any(axis=1)
-
-    def reason_up(row):
-        parts = []
-        if row["Resources_Excl"]:      parts.append("Resources > 0")
-        if row["CAPEX_Avg_Excl"]:      parts.append("3-yr CAPEX avg > 0")
-        if row["ShortTerm_Excl"]:      parts.append("Short-Term Expansion = Yes")
-        if row["Exploration10M_Excl"]: parts.append("CAPEX ≥10 MUSD = Yes")
-        return "; ".join(parts)
-    df["Exclusion Reason"] = df.apply(reason_up, axis=1)
-
+    df["Exclusion Reason"] = df.apply(
+        lambda r: "; ".join(
+            p for p in (
+                "Resources > 0" if r["Resources_Excl"] else None,
+                "3-yr CAPEX avg > 0" if r["CAPEX_Avg_Excl"] else None,
+                "Short-Term Expansion = Yes" if r["ShortTerm_Excl"] else None,
+                "CAPEX ≥10 MUSD = Yes" if r["Exploration10M_Excl"] else None,
+            ) if p
+        ), axis=1
+    )
     excluded = df[df["Excluded"]].copy()
     retained = df[~df["Excluded"]].copy()
     company_col = find_column(df, ["company"], how="partial")
@@ -258,7 +251,7 @@ def main():
     uploaded_file = st.file_uploader("Upload Excel file", type=["xlsx"])
     st.sidebar.header("Level 1 Exclusion Settings")
 
-    # -- Level 1 sidebar inputs --
+    # Level 1 sidebar inputs
     def sector_input(name):
         excl = st.sidebar.checkbox(f"Exclude {name}", value=False)
         thresh = ""
@@ -287,7 +280,7 @@ def main():
         if sels and thr:
             total_thresholds[f"Custom Total {i+1}"] = {"sectors": sels, "threshold": thr}
 
-    # -- Run Level 1 --
+    # Run Level 1
     if st.sidebar.button("Run Level 1 Exclusion"):
         if not uploaded_file:
             st.warning("Please upload a file first.")
@@ -310,32 +303,27 @@ def main():
     st.markdown("---")
     st.header("Level 2 Exclusion (All Companies + Upstream)")
     st.write(
-        "When you click **Run Level 2 Exclusion**, the app will:\n"
-        "1. Apply the All-Companies filter and the Upstream filter\n"
-        "2. Merge any companies appearing in both exclusion lists (concatenating reasons)\n"
-        "3. Give you a single download with **all** Level 1 and Level 2 sheets"
+        "Click **Run Level 2 Exclusion** to apply both All-Companies and Upstream filters, "
+        "merge any duplicate exclusions (concatenating reasons), and download a single combined file."
     )
 
     if st.button("Run Level 2 Exclusion"):
         if not uploaded_file:
             st.warning("Please upload a file first.")
         else:
-            # read sheets
             xls = pd.ExcelFile(uploaded_file)
             # All Companies
             if "All Companies" in xls.sheet_names:
                 df_all = pd.read_excel(uploaded_file, "All Companies", header=[3,4])
                 excl_all, ret_all = filter_all_companies(df_all)
             else:
-                st.error("No 'All Companies' sheet found.")
-                return
+                st.error("No 'All Companies' sheet found."); return
             # Upstream
             if "Upstream" in xls.sheet_names:
                 df_up = pd.read_excel(uploaded_file, "Upstream", header=[3,4])
                 excl_up, ret_up = filter_upstream_companies(df_up)
             else:
-                st.error("No 'Upstream' sheet found.")
-                return
+                st.error("No 'Upstream' sheet found."); return
 
             # Merge duplicate exclusions
             merged_exc = pd.concat([
@@ -350,24 +338,21 @@ def main():
             )
 
             # Determine retained in L2
-            all_companies = set(excl_all["Company"]) | set(ret_all["Company"]) \
-                          | set(excl_up.iloc[:,0])  | set(ret_up.iloc[:,0])
+            all_comps = set(excl_all["Company"]) | set(ret_all["Company"]) \
+                      | set(excl_up.iloc[:,0])    | set(ret_up.iloc[:,0])
             retained_l2 = pd.DataFrame({
-                "Company": [c for c in all_companies if c not in set(merged_exc["Company"])]
+                "Company": [c for c in all_comps if c not in set(merged_exc["Company"])]
             })
 
             # Write everything to one Excel
             out2 = BytesIO()
             with pd.ExcelWriter(out2, engine="xlsxwriter") as w:
-                # Level 1
-                out1, _ = filter_companies_by_revenue(
-                    uploaded_file, sector_exclusions, total_thresholds
-                )
-                # reuse the same L1 file in memory
+                # Level 1 sheets
+                out1, _ = filter_companies_by_revenue(uploaded_file, sector_exclusions, total_thresholds)
                 pd.read_excel(out1, sheet_name="L1 Retained").to_excel(w, "L1 Retained", index=False)
                 pd.read_excel(out1, sheet_name="L1 Excluded").to_excel(w, "L1 Excluded", index=False)
                 pd.read_excel(out1, sheet_name="L1 No Data").to_excel(w, "L1 No Data", index=False)
-                # Level 2
+                # Level 2 sheets
                 merged_exc.to_excel(w, "L2 Excluded", index=False)
                 retained_l2.to_excel(w, "L2 Retained", index=False)
             out2.seek(0)
