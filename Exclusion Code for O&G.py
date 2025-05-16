@@ -16,12 +16,12 @@ def find_column(df, patterns, how="partial", required=True):
         for col in df.columns
     }
     pats = [re.sub(r"\s+", " ", p.strip().lower().replace("\n", " ")) for p in patterns]
-    # exact match
+    # exact
     for pat in pats:
         for col, norm in norm_map.items():
             if norm == pat:
                 return col
-    # partial match
+    # partial
     if how == "partial":
         for pat in pats:
             for col, norm in norm_map.items():
@@ -81,38 +81,45 @@ def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_threshol
     }
     df = rename_columns(df, rename_map)
 
+    # Ensure columns exist
     needed = list(rename_map.keys())
     for col in needed:
         if col not in df.columns:
             df[col] = np.nan
 
+    # No-data slice
     revenue_cols = needed[4:]
     no_data = df[df[revenue_cols].isnull().all(axis=1)].copy()
     df = df.dropna(subset=revenue_cols, how="all")
 
+    # Clean & numeric
     for c in revenue_cols:
         df[c] = pd.to_numeric(
             df[c].astype(str).str.replace("%","",regex=True).str.replace(",","",regex=True),
             errors="coerce"
         ).fillna(0)
 
+    # Custom totals
     for key, info in total_thresholds.items():
         secs = [s for s in info["sectors"] if s in df.columns]
         df[key] = df[secs].sum(axis=1) if secs else 0.0
 
+    # Build Level1 Reason
     reasons = []
     for _, r in df.iterrows():
         parts = []
         for sector, (flag, thr) in sector_exclusions.items():
             if flag and thr.strip():
                 try:
-                    if r[sector] > float(thr)/100: parts.append(f"{sector} > {thr}%")
+                    if r[sector] > float(thr)/100:
+                        parts.append(f"{sector} > {thr}%")
                 except: pass
         for key, info in total_thresholds.items():
             t = info.get("threshold","").strip()
             if t:
                 try:
-                    if r[key] > float(t)/100: parts.append(f"{key} > {t}%")
+                    if r[key] > float(t)/100:
+                        parts.append(f"{key} > {t}%")
                 except: pass
         reasons.append("; ".join(parts))
     df["Reason"] = reasons
@@ -120,7 +127,7 @@ def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_threshol
     excluded = df[df["Reason"]!=""].copy()
     retained = df[df["Reason"]==""].copy()
 
-    # rename Custom Total 1 → Custom Total Revenue
+    # Rename first custom total
     if "Custom Total 1" in df.columns:
         for d in (excluded, retained, no_data):
             d.rename(columns={"Custom Total 1":"Custom Total Revenue"}, inplace=True)
@@ -152,16 +159,19 @@ def filter_all_companies(df):
         df[c] = df.get(c, np.nan)
 
     for c in req[5:]:
-        df[c] = pd.to_numeric(df[c].astype(str).str.replace(",","",regex=True), errors="coerce").fillna(0)
+        df[c] = pd.to_numeric(
+            df[c].astype(str).str.replace(",","",regex=True),
+            errors="coerce"
+        ).fillna(0)
 
-    df["Upstream_Flag"]   = df["GOGEL Tab"].str.contains("upstream",case=False,na=False)
-    df["Midstream_Flag"]  = (
+    df["Upstream_Flag"]  = df["GOGEL Tab"].str.contains("upstream",case=False,na=False)
+    df["Midstream_Flag"] = (
         (df["Length of Pipelines under Development"]>0)
         |(df["Liquefaction Capacity (Export)"]>0)
         |(df["Regasification Capacity (Import)"]>0)
         |(df["Total Capacity under Development"]>0)
     )
-    df["Excluded"] = df["Upstream_Flag"] | df["Midstream_Flag"]
+    df["Excluded"] = df["Upstream_Flag"]|df["Midstream_Flag"]
     df["Exclusion Reason"] = df.apply(
         lambda r: "; ".join(p for p in (
             "Upstream in GOGEL Tab" if r["Upstream_Flag"] else None,
@@ -169,15 +179,13 @@ def filter_all_companies(df):
         ) if p), axis=1
     )
 
-    exc = df[df["Excluded"]].copy()
-    ret = df[~df["Excluded"]].copy()
-    return exc, ret
+    return df[df["Excluded"]].copy(), df[~df["Excluded"]].copy()
 
 def filter_upstream_companies(df):
     df = flatten_multilevel_columns(df)
     df = df.loc[:, ~df.columns.str.lower().str.startswith("parent company")]
 
-    # find + standardize Company
+    # Standardize Company
     comp = find_column(df, ["company"], how="partial", required=True)
     df.rename(columns={comp:"Company"}, inplace=True)
 
@@ -186,7 +194,7 @@ def filter_upstream_companies(df):
     shortterm = find_column(df, ["short-term expansion ≥20 mmboe"], how="partial", required=True)
     capex10   = find_column(df, ["exploration capex ≥10 MUSD"], how="partial", required=True)
 
-    # numeric
+    # Numeric coercion
     df[resources] = pd.to_numeric(df[resources].astype(str).str.replace(",","",regex=True), errors="coerce").fillna(0)
     df[capex_avg] = pd.to_numeric(df[capex_avg].astype(str).str.replace(",","",regex=True), errors="coerce").fillna(0)
 
@@ -201,16 +209,15 @@ def filter_upstream_companies(df):
             "Resources > 0"       if r["F2_Res"] else None,
             "3-yr CAPEX avg > 0"  if r["F2_Avg"] else None,
             "Short-Term Expansion = Yes" if r["F2_ST"] else None,
-            "CAPEX ≥10 MUSD = Yes"     if r["F2_10M"] else None,
+            "CAPEX ≥10 MUSD = Yes"     if r["F2_10M"] else None
         ) if p), axis=1
     )
 
     exc = df[df["Excluded"]].copy()
     ret = df[~df["Excluded"]].copy()
 
-    # only upstream-specific columns + Company + Exclusion Reason
-    out_cols = ["Company", resources, capex_avg, shortterm, capex10, "Exclusion Reason"]
-    return exc[out_cols], ret[out_cols]
+    return exc[["Company",resources,capex_avg,shortterm,capex10,"Exclusion Reason"]], \
+           ret[["Company",resources,capex_avg,shortterm,capex10,"Exclusion Reason"]]
 
 # ---------------- Excel Helpers ----------------
 
@@ -245,13 +252,13 @@ def to_excel_l2(exc_all, exc1, exc2, ret1, ret2, exc_up, ret_up):
     ]
     buf = BytesIO()
     with pd.ExcelWriter(buf, engine="xlsxwriter") as w:
-        exc_all.reindex(columns=cols).to_excel(w, "All Excluded", index=False)
-        exc1   .reindex(columns=cols).to_excel(w, "Excluded Level 1", index=False)
-        exc2   .reindex(columns=cols).to_excel(w, "Excluded Level 2", index=False)
-        ret1   .reindex(columns=cols).to_excel(w, "Retained Level 1", index=False)
-        ret2   .reindex(columns=cols).to_excel(w, "Retained Level 2", index=False)
-        exc_up .reindex(columns=cols).to_excel(w, "Upstream Excluded", index=False)
-        ret_up .reindex(columns=cols).to_excel(w, "Upstream Retained", index=False)
+        exc_all.reindex(columns=cols).to_excel(w,"All Excluded",index=False)
+        exc1   .reindex(columns=cols).to_excel(w,"Excluded Level 1",index=False)
+        exc2   .reindex(columns=cols).to_excel(w,"Excluded Level 2",index=False)
+        ret1   .reindex(columns=cols).to_excel(w,"Retained Level 1",index=False)
+        ret2   .reindex(columns=cols).to_excel(w,"Retained Level 2",index=False)
+        exc_up .reindex(columns=cols).to_excel(w,"Upstream Excluded",index=False)
+        ret_up .reindex(columns=cols).to_excel(w,"Upstream Retained",index=False)
     buf.seek(0)
     return buf
 
@@ -278,7 +285,7 @@ def main():
 
     st.sidebar.header("Custom Total Thresholds")
     total_thresholds = {}
-    n = st.sidebar.number_input("How many totals?", min_value=1, max_value=5, value=1)
+    n = st.sidebar.number_input("How many totals?",1,5,1)
     for i in range(n):
         sels = st.sidebar.multiselect(f"Sectors for Total {i+1}", sector_list, key=f"sel{i}")
         thr  = st.sidebar.text_input(f"Threshold {i+1} (%)", key=f"thr{i}")
@@ -288,7 +295,7 @@ def main():
     # Run Level 1
     if st.sidebar.button("Run Level 1 Exclusion"):
         if not uploaded_file:
-            st.warning("Please upload a file first.")
+            st.warning("Upload a file first.")
         else:
             exc1, ret1, no1 = filter_companies_by_revenue(uploaded_file, sector_excs, total_thresholds)
             st.success("Level 1 done")
@@ -305,38 +312,39 @@ def main():
 
     if st.button("Run Level 2 Exclusion"):
         if not uploaded_file:
-            st.warning("Please upload a file first.")
+            st.warning("Upload a file first.")
             return
-        xls = pd.ExcelFile(uploaded_file)
 
-        # All Companies
+        # Re-run Level 1 to get exc1, ret1
+        exc1, ret1, no1 = filter_companies_by_revenue(uploaded_file, sector_excs, total_thresholds)
+
+        # All Companies filter
         df_all = pd.read_excel(uploaded_file, "All Companies", header=[3,4])
         exc_all, ret_all = filter_all_companies(df_all)
 
-        # Upstream
+        # Upstream filter
         df_up = pd.read_excel(uploaded_file, "Upstream", header=[3,4])
         exc_up, ret_up = filter_upstream_companies(df_up)
 
-        # L2 exclusions merged
-        merged_exc = pd.concat([
+        # Merge Level 2 excluded
+        merged = pd.concat([
             exc_all[["Company","Exclusion Reason"]],
             exc_up[["Company","Exclusion Reason"]]
         ])
         merged_exc = (
-            merged_exc
+            merged
             .groupby("Company")["Exclusion Reason"]
             .apply(lambda rs: "; ".join(sorted(set("; ".join(rs).split("; ")))))
             .reset_index()
         )
 
-        # Retained L2
+        # Retained Level 2
         all_comps = (
             set(exc_all["Company"]) | set(ret_all["Company"]) |
             set(exc_up["Company"])  | set(ret_up["Company"])
         )
         ret2 = pd.DataFrame({"Company":[c for c in all_comps if c not in set(merged_exc["Company"])]})
 
-        # Build combined file
         buf = to_excel_l2(exc_all, exc1, merged_exc, ret1, ret2, exc_up, ret_up)
         st.success("Level 2 done")
         st.download_button(
