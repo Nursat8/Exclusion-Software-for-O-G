@@ -330,7 +330,13 @@ def main():
         union=union.merge(df_l1_all,on="Company",how="left")
         union=union.merge(exc_all[["Company","Exclusion Reason"]].rename(columns={"Exclusion Reason":"L2_Reason_AC"}),on="Company",how="left")
         union=union.merge(exc_up[["Company","Exclusion Reason"]].rename(columns={"Exclusion Reason":"L2_Reason_UP"}),on="Company",how="left")
-        union["Exclusion Reason"]=union[["L2_Reason_AC","L2_Reason_UP"]].fillna(""").agg("; ".join,axis=1).str.replace(r"(; )+","; ").str.strip("; ")
+        union["Exclusion Reason"] = (
+            union[["L2_Reason_AC","L2_Reason_UP"]]
+            .fillna("")                               # <-- fixed here
+            .agg("; ".join, axis=1)
+            .str.replace(r"(; )+", "; ")
+            .str.strip("; ")
+        )
         union.drop(columns=["L2_Reason_AC","L2_Reason_UP"],inplace=True)
 
         all_names=set(df_l1_all["Company"])
