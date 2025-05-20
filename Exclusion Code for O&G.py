@@ -109,14 +109,14 @@ def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_threshol
         secs = [s for s in info["sectors"] if s in df.columns]
         df[key] = df[secs].sum(axis=1) if secs else 0.0
 
-    # build Level 1 reasons
+    # Build Level 1 reasons
     reasons = []
-    for _,row in df.iterrows():
+    for _,r in df.iterrows():
         parts = []
         for sector,(flag,thr) in sector_exclusions.items():
             if flag and thr.strip():
                 try:
-                    if row[sector] > float(thr)/100:
+                    if r[sector] > float(thr)/100:
                         parts.append(f"{sector} > {thr}%")
                 except:
                     pass
@@ -124,7 +124,7 @@ def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_threshol
             t = info.get("threshold","").strip()
             if t:
                 try:
-                    if row[key] > float(t)/100:
+                    if r[key] > float(t)/100:
                         parts.append(f"{key} > {t}%")
                 except:
                     pass
@@ -138,7 +138,7 @@ def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_threshol
         for d in (excluded, retained, no_data):
             d.rename(columns={"Custom Total 1":"Custom Total Revenue"}, inplace=True)
 
-    # fix '.' names
+    # Fix any '.' company names
     raw = xls.parse("All Companies", header=[3,4]).iloc[:,[6]]
     raw = flatten_multilevel_columns(raw)
     raw = raw.loc[:, ~raw.columns.str.lower().str.startswith("parent company")]
@@ -226,15 +226,15 @@ def filter_upstream_companies(df):
             "Resources under development and field evaluation > 0" if r["F2_Res"] else None,
             "3-yr CAPEX avg > 0" if r["F2_Avg"] else None,
             "Short-Term Expansion = Yes" if r["F2_ST"] else None,
-            "CAPEX ≥10 MUSD = Yes" if r["F2_10M"] else None
+            "CAPEX ≥10 MUSD = Yes" if r["F2_10M"] else None,
         ) if p),
         axis=1
     )
 
     exc = df[df["Excluded"]].copy()
     ret = df[~df["Excluded"]].copy()
-    return exc[["Company",resources,capex_avg,shortterm,capex10,"Exclusion Reason"]], \
-           ret[["Company",resources,capex_avg,shortterm,capex10,"Exclusion Reason"]]
+    return exc[["Company", resources, capex_avg, shortterm, capex10, "Exclusion Reason"]], \
+           ret[["Company", resources, capex_avg, shortterm, capex10, "Exclusion Reason"]]
 
 # ---------------- Excel Helpers ----------------
 
@@ -268,9 +268,9 @@ def to_excel_l2(all_exc, exc1, exc2, ret1, ret2, exc_up, ret_up):
     with pd.ExcelWriter(buf, engine="xlsxwriter") as w:
         all_exc .reindex(columns=cols).to_excel(w, "All Excluded Companies", index=False)
         exc1    .reindex(columns=cols).to_excel(w, "Excluded Level 1", index=False)
-        exc2    .reindex(columns=cols).to_excel(w, "Excluded Level 2", index=False)
+        exc2    .reindex(columns=cols).to_excel(w, "Midstream Excluded", index=False)
         ret1    .reindex(columns=cols).to_excel(w, "Retained Level 1", index=False)
-        ret2    .reindex(columns=cols).to_excel(w, "Retained Level 2", index=False)
+        ret2    .reindex(columns=cols).to_excel(w, "Midstream Retained", index=False)
         exc_up  .reindex(columns=cols).to_excel(w, "Upstream Excluded", index=False)
         ret_up  .reindex(columns=cols).to_excel(w, "Upstream Retained", index=False)
     buf.seek(0)
