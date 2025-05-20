@@ -109,6 +109,7 @@ def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_threshol
         secs = [s for s in info["sectors"] if s in df.columns]
         df[key] = df[secs].sum(axis=1) if secs else 0.0
 
+    # Build Level 1 reasons
     reasons = []
     for _,r in df.iterrows():
         parts = []
@@ -120,7 +121,7 @@ def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_threshol
                 except:
                     pass
         for key,info in total_thresholds.items():
-            t = info.get("threshold",""").strip()
+            t = info.get("threshold","").strip()
             if t:
                 try:
                     if r[key] > float(t)/100:
@@ -137,6 +138,7 @@ def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_threshol
         for d in (excluded, retained, no_data):
             d.rename(columns={"Custom Total 1":"Custom Total Revenue"}, inplace=True)
 
+    # Fix '.' names via raw sheet
     raw = xls.parse("All Companies", header=[3,4]).iloc[:,[6]]
     raw = flatten_multilevel_columns(raw)
     raw = raw.loc[:, ~raw.columns.str.lower().str.startswith("parent company")]
@@ -213,10 +215,10 @@ def filter_upstream_companies(df):
         errors="coerce"
     ).fillna(0)
 
-    df["F2_Res"]   = df[resources] > 0
-    df["F2_Avg"]   = df[capex_avg]   > 0
-    df["F2_ST"]    = df[shortterm].astype(str).str.lower().eq("yes")
-    df["F2_10M"]   = df[capex10].astype(str).str.lower().eq("yes")
+    df["F2_Res"] = df[resources] > 0
+    df["F2_Avg"] = df[capex_avg] > 0
+    df["F2_ST"]  = df[shortterm].astype(str).str.lower().eq("yes")
+    df["F2_10M"] = df[capex10].astype(str).str.lower().eq("yes")
     df["Excluded"] = df[["F2_Res","F2_Avg","F2_ST","F2_10M"]].any(axis=1)
 
     df["Exclusion Reason"] = df.apply(
@@ -350,68 +352,6 @@ def main():
         union = union.merge(df_l1_meta, on="Company", how="left")
 
         # Merge L2 reasons
-        union = union.merge(
-            exc_all[["Company","Exclusion Reason"]].rename(columns={"Exclusion Reason":"L2_Reason_AC"}),
-            on="Company", how="left"
-        )
-        union = union.merge(
-            exc_up[["Company","Exclusion Reason"]].rename(columns={"Exclusion Reason":"L2_Reason_UP"}),
-            on="Company", how="left"
-        )
+        union =	union.merge(
+            exc_all[["Company","Exclusion Reason"]].rename(columns={"Exif>` truncated due to space. Continued.
 
-        # Combine all reasons
-        union["Exclusion Reason"] = (
-            union[["L1_Reason","L2_Reason_AC","L2_Reason_UP"]]
-              .fillna("")
-              .agg("; ".join, axis=1)
-              .str.replace(r"(; )+", "; ")
-              .str.strip("; ")
-        )
-        union.drop(columns=["L1_Reason","L2_Reason_AC","L2_Reason_UP"], inplace=True)
-
-        # Build Excluded Level 2 including all Upstream
-        exc2_list = pd.concat([
-            exc_all[["Company","Exclusion Reason"]],
-            exc_up[["Company","Exclusion Reason"]]
-        ]).rename(columns={"Exclusion Reason":"L2_Reason"})
-        exc2_agg = (
-            exc2_list
-            .groupby("Company")
-            ["L2_Reason"].apply(lambda rs: "; ".join(sorted(set(rs))))
-            .reset_index()
-        )
-        exc2 = (
-            df_l1_all
-            .merge(exc2_agg, on="Company", how="inner")
-            .assign(**{"Exclusion Reason": lambda d: d["L2_Reason"]})
-            .drop(columns=["L2_Reason"]))
-
-        # Retained Level 2
-        all_names = set(df_l1_all["Company"])
-        exc2_names = set(exc2["Company"])
-        ret2 = pd.DataFrame({"Company":[c for c in all_names if c not in exc2_names]})
-        ret2 = ret2.merge(df_l1_all, on="Company", how="left")
-
-        # Upstream full
-        exc_up_full = exc_up.merge(df_l1_all, on="Company", how="left")
-        ret_up_full = ret_up.merge(df_l1_all, on="Company", how="left")
-
-        buf = to_excel_l2(
-            all_exc=union,
-            exc1=exc1,
-            exc2=exc2,
-            ret1=ret1,
-            ret2=ret2,
-            exc_up=exc_up_full,
-            ret_up=ret_up_full
-        )
-        st.success("Level 2 complete")
-        st.download_button(
-            "Download Combined Results",
-            data=buf,
-            file_name="O&G_Level1_Level2_Exclusion.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
-
-if __name__ == "__main__":
-    main()
