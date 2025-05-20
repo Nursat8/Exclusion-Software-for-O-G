@@ -99,9 +99,9 @@ def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_threshol
     for c in revenue_cols:
         df[c] = (
             df[c]
-            .astype(str)
-            .str.replace("%","",regex=True)
-            .str.replace(",","",regex=True)
+              .astype(str)
+              .str.replace("%","",regex=True)
+              .str.replace(",","",regex=True)
         )
         df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0)
 
@@ -109,7 +109,7 @@ def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_threshol
         secs = [s for s in info["sectors"] if s in df.columns]
         df[key] = df[secs].sum(axis=1) if secs else 0.0
 
-    # build Level 1 Exclusion Reason
+    # Build Level 1 reasons
     reasons = []
     for _,r in df.iterrows():
         parts = []
@@ -138,7 +138,7 @@ def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_threshol
         for d in (excluded, retained, no_data):
             d.rename(columns={"Custom Total 1":"Custom Total Revenue"}, inplace=True)
 
-    # fix '.' names via raw sheet
+    # Fix any '.' company names
     raw = xls.parse("All Companies", header=[3,4]).iloc[:,[6]]
     raw = flatten_multilevel_columns(raw)
     raw = raw.loc[:, ~raw.columns.str.lower().str.startswith("parent company")]
@@ -282,7 +282,7 @@ def main():
     st.title("Level 1 & Level 2 Exclusion Filter for O&G")
     uploaded = st.file_uploader("Upload Excel file", type=["xlsx"])
 
-    # Level 1 Settings
+    # Level 1 sidebar
     st.sidebar.header("Level 1 Settings")
     sectors = [
         "Hydrocarbons Production (%)","Fracking Revenue","Tar Sand Revenue",
@@ -321,47 +321,48 @@ def main():
 
     st.markdown("---")
     st.header("Level 2 Exclusion")
-    st.write("Will apply All-Companies + Upstream filters, merge duplicates, and pull in all missing data points.")
+    st.write("Applies All-Companies + Upstream filters, merges duplicates, and fills in all data.")
 
     if st.button("Run Level 2 Exclusion"):
         if not uploaded:
             st.warning("Please upload a file first.")
             return
 
-        # Re-run Level 1
+        # Rerun L1 to get full df_l1_all
         exc1, ret1, no1 = filter_companies_by_revenue(uploaded, sector_excs, total_thresholds)
         df_l1_all = pd.concat([exc1, ret1, no1], ignore_index=True)
 
-        # All-Companies Level 2
+        # All-Companies L2
         df_all = pd.read_excel(uploaded, "All Companies", header=[3,4])
         exc_all, ret_all = filter_all_companies(df_all)
 
-        # Upstream Level 2
+        # Upstream L2
         df_up = pd.read_excel(uploaded, "Upstream", header=[3,4])
         exc_up, ret_up = filter_upstream_companies(df_up)
 
-        # Build All Excluded Companies
+        # Build All Excluded Companies union
         union = pd.concat([
             exc1[["Company"]],
             exc_all[["Company"]],
             exc_up[["Company"]]
         ]).drop_duplicates()
 
-        # Merge in L1 reason
+        # Merge in Level 1 Reason
         df_l1_meta = df_l1_all[["Company","Exclusion Reason"]].rename(columns={"Exclusion Reason":"L1_Reason"})
         union = union.merge(df_l1_meta, on="Company", how="left")
 
-        # Merge in L2 reasons
+        # Merge in Level 2 All-Companies Reason
         union = union.merge(
             exc_all[["Company","Exclusion Reason"]].rename(columns={"Exclusion Reason":"L2_Reason_AC"}),
             on="Company", how="left"
         )
+        # Merge in Level 2 Upstream Reason
         union = union.merge(
             exc_up[["Company","Exclusion Reason"]].rename(columns={"Exclusion Reason":"L2_Reason_UP"}),
             on="Company", how="left"
         )
 
-        # Combine all reasons
+        # Combine all three reasons into final Exclusion Reason
         union["Exclusion Reason"] = (
             union[["L1_Reason","L2_Reason_AC","L2_Reason_UP"]]
               .fillna("")
@@ -377,14 +378,22 @@ def main():
         ret2 = pd.DataFrame({"Company":[c for c in all_names if c not in exc2_names]})
         ret2 = ret2.merge(df_l1_all, on="Company", how="left")
 
-        # Upstream full with L1 data
+        # Upstream full merge
         exc_up_full = exc_up.merge(df_l1_all, on="Company", how="left")
         ret_up_full = ret_up.merge(df_l1_all, on="Company", how="left")
 
         buf = to_excel_l2(
             all_exc=union,
             exc1=exc1,
-            exc2=exc_all.merge(df_l1_all, on="Company", how="left"),
+            exc2=(
+                # Build Excluded Level 2 sheet properly with its own L2 reasons
+                df_l1_all
+                  .merge(exc_all[["Company","Exclusion Reason"]]
+                           .rename(columns={"Exclusion Reason":"L2_Reason"}), 
+                         on="Company", how="inner")
+                  .assign(**{"Exclusion Reason": lambda d: d["L2_Reason"]})
+                  .drop(columns=["L2_Reason"])
+            ),
             ret1=ret1,
             ret2=ret2,
             exc_up=exc_up_full,
@@ -400,5 +409,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
