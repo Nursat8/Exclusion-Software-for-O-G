@@ -121,7 +121,7 @@ def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_threshol
                 except:
                     pass
         for key,info in total_thresholds.items():
-            t = info.get("threshold",""").strip()
+            t = info.get("threshold","").strip()
             if t:
                 try:
                     if r[key] > float(t)/100:
