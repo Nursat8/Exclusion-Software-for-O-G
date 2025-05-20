@@ -121,7 +121,7 @@ def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_threshol
                 except:
                     pass
         for key,info in total_thresholds.items():
-            t = info.get("threshold","").strip()
+            t = info.get("threshold",""").strip()
             if t:
                 try:
                     if r[key] > float(t)/100:
@@ -143,7 +143,7 @@ def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_threshol
     raw = flatten_multilevel_columns(raw)
     raw = raw.loc[:, ~raw.columns.str.lower().str.startswith("parent company")]
     raw.columns = ["Company"]
-    raw["Company"] = raw["Company"].fillna("").astype(str)
+    raw["Company"] = raw["Company"].fillna(""").astype(str)
     for d in (excluded, retained, no_data):
         d.reset_index(drop=True, inplace=True)
         d["Company"] = d["Company"].replace(".", np.nan)
@@ -226,15 +226,15 @@ def filter_upstream_companies(df):
             "Resources under development and field evaluation > 0" if r["F2_Res"] else None,
             "3-yr CAPEX avg > 0" if r["F2_Avg"] else None,
             "Short-Term Expansion = Yes" if r["F2_ST"] else None,
-            "CAPEX ≥10 MUSD = Yes" if r["F2_10M"] else None,
+            "CAPEX ≥10 MUSD = Yes" if r["F2_10M"] else None
         ) if p),
         axis=1
     )
 
     exc = df[df["Excluded"]].copy()
     ret = df[~df["Excluded"]].copy()
-    return exc[["Company", resources, capex_avg, shortterm, capex10, "Exclusion Reason"]], \
-           ret[["Company", resources, capex_avg, shortterm, capex10, "Exclusion Reason"]]
+    return exc[["Company",resources,capex_avg,shortterm,capex10,"Exclusion Reason"]], \
+           ret[["Company",resources,capex_avg,shortterm,capex10,"Exclusion Reason"]]
 
 # ---------------- Excel Helpers ----------------
 
