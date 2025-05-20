@@ -143,7 +143,7 @@ def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_threshol
     raw = flatten_multilevel_columns(raw)
     raw = raw.loc[:, ~raw.columns.str.lower().str.startswith("parent company")]
     raw.columns = ["Company"]
-    raw["Company"] = raw["Company"].fillna(""").astype(str)
+    raw["Company"] = raw["Company"].fillna("").astype(str).astype(str)
     for d in (excluded, retained, no_data):
         d.reset_index(drop=True, inplace=True)
         d["Company"] = d["Company"].replace(".", np.nan)
