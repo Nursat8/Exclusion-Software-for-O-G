@@ -239,7 +239,7 @@ def filter_upstream_companies(df):
 
     df["Exclusion Reason"] = df.apply(
         lambda r: "; ".join(p for p in (
-            "Resources > 0"       if r["F2_Res"] else None,
+            "Resources under development and Exploration CAPEX 3-year average > 0"       if r["F2_Res"] else None,
             "3-yr CAPEX avg > 0"  if r["F2_Avg"] else None,
             "Short-Term Expansion = Yes" if r["F2_ST"] else None,
             "CAPEX ≥10 MUSD = Yes"     if r["F2_10M"] else None,
