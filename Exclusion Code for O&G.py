@@ -109,14 +109,14 @@ def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_threshol
         secs = [s for s in info["sectors"] if s in df.columns]
         df[key] = df[secs].sum(axis=1) if secs else 0.0
 
-    # Build Level 1 reasons
+    # build Level 1 reasons
     reasons = []
-    for _,r in df.iterrows():
+    for _,row in df.iterrows():
         parts = []
         for sector,(flag,thr) in sector_exclusions.items():
             if flag and thr.strip():
                 try:
-                    if r[sector] > float(thr)/100:
+                    if row[sector] > float(thr)/100:
                         parts.append(f"{sector} > {thr}%")
                 except:
                     pass
@@ -124,7 +124,7 @@ def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_threshol
             t = info.get("threshold","").strip()
             if t:
                 try:
-                    if r[key] > float(t)/100:
+                    if row[key] > float(t)/100:
                         parts.append(f"{key} > {t}%")
                 except:
                     pass
@@ -138,12 +138,12 @@ def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_threshol
         for d in (excluded, retained, no_data):
             d.rename(columns={"Custom Total 1":"Custom Total Revenue"}, inplace=True)
 
-    # Fix any '.' company names
+    # fix '.' names
     raw = xls.parse("All Companies", header=[3,4]).iloc[:,[6]]
     raw = flatten_multilevel_columns(raw)
     raw = raw.loc[:, ~raw.columns.str.lower().str.startswith("parent company")]
     raw.columns = ["Company"]
-    raw["Company"] = raw["Company"].fillna("").astype(str).astype(str)
+    raw["Company"] = raw["Company"].fillna("").astype(str)
     for d in (excluded, retained, no_data):
         d.reset_index(drop=True, inplace=True)
         d["Company"] = d["Company"].replace(".", np.nan)
