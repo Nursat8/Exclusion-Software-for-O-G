@@ -269,17 +269,21 @@ def to_excel_l2(all_exc, exc1, exc2, ret1, ret2, exc_up, ret_up):
         "Resources under Development and Field Evaluation","Exploration CAPEX 3-year average",
         "Short-Term Expansion ≥20 mmboe","Exploration CAPEX ≥10 MUSD","Exclusion Reason"
     ]
+    # remove duplicates while preserving order
+    cols = list(dict.fromkeys(cols))
+
     buf = BytesIO()
     with pd.ExcelWriter(buf, engine="xlsxwriter") as w:
-        all_exc .reindex(columns=cols).to_excel(w, "All Excluded Companies", index=False)
-        exc1    .reindex(columns=cols).to_excel(w, "Excluded Level 1", index=False)
-        exc2    .reindex(columns=cols).to_excel(w, "Midstream Excluded", index=False)
-        ret1    .reindex(columns=cols).to_excel(w, "Retained Level 1", index=False)
-        ret2    .reindex(columns=cols).to_excel(w, "Midstream Retained", index=False)
-        exc_up  .reindex(columns=cols).to_excel(w, "Upstream Excluded", index=False)
-        ret_up  .reindex(columns=cols).to_excel(w, "Upstream Retained", index=False)
+        all_exc.reindex(columns=cols).to_excel(w, "All Excluded Companies", index=False)
+        exc1   .reindex(columns=cols).to_excel(w, "Excluded Level 1",      index=False)
+        exc2   .reindex(columns=cols).to_excel(w, "Midstream Excluded",     index=False)
+        ret1   .reindex(columns=cols).to_excel(w, "Retained Level 1",       index=False)
+        ret2   .reindex(columns=cols).to_excel(w, "Midstream Retained",     index=False)
+        exc_up .reindex(columns=cols).to_excel(w, "Upstream Excluded",      index=False)
+        ret_up .reindex(columns=cols).to_excel(w, "Upstream Retained",      index=False)
     buf.seek(0)
     return buf
+
 
 # ---------------- Streamlit App ----------------
 
@@ -422,7 +426,7 @@ def main():
                     on="Company", how="left")
         )
 
-        cols = list(dict.fromkeys(cols))
+        
         buf = to_excel_l2(
             all_exc=union,
             exc1=exc1,
