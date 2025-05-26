@@ -337,7 +337,7 @@ def main():
             df_up = pd.read_excel(uploaded, "Upstream", header=[3, 4])
             df_up = ensure_unique_columns(df_up)        #  <-- after reading
             exc_up, ret_up = filter_upstream_companies(df_up)
-        if not uploaded:
+    if not uploaded:
             st.warning("Please upload a file first.")
             return
 
