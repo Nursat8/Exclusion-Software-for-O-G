@@ -237,7 +237,12 @@ def filter_upstream_companies(df):
            ret[["Company", resources, capex_avg, shortterm, capex10, "Exclusion Reason"]]
 
 # ---------------- Excel Helpers ----------------
-
+def ensure_unique_columns(df):
+    """
+    If a column label appears more than once keep only the **first** copy.
+    (All values are identical anyway because they came from the same sheet.)
+    """
+    return df.loc[:, ~df.columns.duplicated()].copy()
 def to_excel_l1(exc, ret, no_data):
     cols = [
         "Company","BB Ticker","ISIN equity","LEI",
@@ -331,6 +336,15 @@ def main():
         # Rerun L1 to get full df_l1_all
         exc1, ret1, no1 = filter_companies_by_revenue(uploaded, sector_excs, total_thresholds)
         df_l1_all = pd.concat([exc1, ret1, no1], ignore_index=True)
+        df_l1_all = ensure_unique_columns(df_l1_all)
+
+        # after you read the two Level-2 source sheets
+        df_all = ensure_unique_columns(df_all)
+        df_up  = ensure_unique_columns(df_up)
+
+        # after you build exc_all / ret_all, exc_up / ret_up
+        exc_all = ensure_unique_columns(exc_all)
+        exc_up  = ensure_unique_columns(exc_up)
 
         # All-Companies L2
         df_all = pd.read_excel(uploaded, "All Companies", header=[3,4])
