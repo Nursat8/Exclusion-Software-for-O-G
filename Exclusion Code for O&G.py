@@ -394,8 +394,9 @@ def main():
         union.drop(columns=["L1_Reason","L2_Reason_AC","L2_Reason_UP"], inplace=True)
         meta_cols = [
             c for c in df_l1_all.columns
-            if c not in ("Exclusion Reason",)          # we'll keep the one we just made
+            if c not in ("Company", "Exclusion Reason")   # <- keep them out
         ]
+
         union = (
             union
                 .merge(df_l1_all[["Company", *meta_cols]], on="Company", how="left")
