@@ -5,7 +5,12 @@ from io import BytesIO
 import streamlit as st
 
 # ---------------- Helper Functions ----------------
-
+def ensure_unique_columns(df):
+    """
+    If a column label appears more than once keep only the **first** copy.
+    (All values are identical anyway because they came from the same sheet.)
+    """
+    return df.loc[:, ~df.columns.duplicated()].copy()
 def flatten_multilevel_columns(df):
     df.columns = [
         " ".join(str(l).strip() for l in col).strip()
@@ -237,12 +242,7 @@ def filter_upstream_companies(df):
            ret[["Company", resources, capex_avg, shortterm, capex10, "Exclusion Reason"]]
 
 # ---------------- Excel Helpers ----------------
-def ensure_unique_columns(df):
-    """
-    If a column label appears more than once keep only the **first** copy.
-    (All values are identical anyway because they came from the same sheet.)
-    """
-    return df.loc[:, ~df.columns.duplicated()].copy()
+
 def to_excel_l1(exc, ret, no_data):
     cols = [
         "Company","BB Ticker","ISIN equity","LEI",
