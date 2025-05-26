@@ -182,16 +182,18 @@ def filter_upstream_companies(df):
     })
 
     # ---- numeric conversion -------------------------------------------------
-    df["Resources under Development and Field Evaluation"] = (
-        df["Resources under Development and Field Evaluation"]
-          .astype(str).str.replace(",", "", regex=True).astype(float)
-          .fillna(0)
-    )
-    df["Exploration CAPEX 3-year average"] = (
-        df["Exploration CAPEX 3-year average"]
-          .astype(str).str.replace(",", "", regex=True).astype(float)
-          .fillna(0)
-    )
+    num_cols = [
+        "Resources under Development and Field Evaluation",
+        "Exploration CAPEX 3-year average",
+    ]
+    for c in num_cols:
+        df[c] = pd.to_numeric(
+            df[c].astype(str)               # keep strings safe
+                 .str.replace(",", "", regex=True)
+                 .str.replace(r"[^\d.\-]", "", regex=True),   # strip any units / text
+            errors="coerce"
+        ).fillna(0)
+
 
     # ---- flagging rules -----------------------------------------------------
     df["F2_Res"] = df["Resources under Development and Field Evaluation"] > 0
