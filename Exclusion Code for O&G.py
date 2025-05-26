@@ -156,90 +156,77 @@ def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_threshol
 
     return excluded, retained, no_data
 
-# ---------------- Level 2 Exclusion ----------------
-
-def filter_all_companies(df):
-    df = flatten_multilevel_columns(df)
-    df = df.loc[:, ~df.columns.str.lower().str.startswith("parent company")]
-    df = df.iloc[1:].reset_index(drop=True)
-
-    rename_map = {
-        "Company": ["company"],
-        "GOGEL Tab": ["gogel tab"],
-        "BB Ticker": ["bb ticker"],
-        "ISIN equity": ["isin equity"],
-        "LEI": ["lei"],
-        "Length of Pipelines under Development": ["length of pipelines"],
-        "Liquefaction Capacity (Export)": ["liquefaction capacity"],
-        "Regasification Capacity (Import)": ["regasification capacity"],
-        "Total Capacity under Development": ["total capacity under development"]
-    }
-    df = rename_columns(df, rename_map)
-
-    req = list(rename_map.keys())
-    for c in req:
-        df[c] = df.get(c, np.nan)
-    for c in req[5:]:
-        df[c] = pd.to_numeric(
-            df[c].astype(str).str.replace(",","",regex=True),
-            errors="coerce"
-        ).fillna(0)
-
-    df["Midstream_Flag"] = (
-        (df["Length of Pipelines under Development"] > 0)
-        | (df["Liquefaction Capacity (Export)"] > 0)
-        | (df["Regasification Capacity (Import)"] > 0)
-        | (df["Total Capacity under Development"] > 0)
-    )
-    df["Excluded"] = df["Midstream_Flag"]
-    df["Exclusion Reason"] = df.apply(
-        lambda r: "Midstream Expansion > 0" if r["Midstream_Flag"] else "",
-        axis=1
-    )
-
-    return df[df["Excluded"]].copy(), df[~df["Excluded"]].copy()
-
+# ---------------- Level-2 — Upstream filter ----------------
 def filter_upstream_companies(df):
     df = flatten_multilevel_columns(df)
     df = df.loc[:, ~df.columns.str.lower().str.startswith("parent company")]
 
-    comp = find_column(df, ["company"], how="partial", required=True)
-    df.rename(columns={comp:"Company"}, inplace=True)
+    # ---- locate the columns (works with any spelling) ----
+    comp_col      = find_column(df, ["company"], how="partial", required=True)
+    res_col       = find_column(df, ["resources under development and field evaluation"],
+                                how="partial", required=True)
+    capex_avg_col = find_column(df, ["exploration capex 3-year average"],
+                                how="partial", required=True)
+    short_col     = find_column(df, ["short-term expansion ≥20 mmboe"],
+                                how="partial", required=True)
+    capex10_col   = find_column(df, ["exploration capex ≥10 musd"],
+                                how="partial", required=True)
 
-    resources = find_column(df, ["resources under development and field evaluation"], how="partial", required=True)
-    capex_avg = find_column(df, ["exploration capex 3-year average"], how="partial", required=True)
-    shortterm = find_column(df, ["short-term expansion ≥20 mmboe"], how="partial", required=True)
-    capex10   = find_column(df, ["exploration capex ≥10 MUSD"], how="partial", required=True)
+    # ---- rename to canonical spellings so every sheet matches ----
+    df = df.rename(columns={
+        comp_col     : "Company",
+        res_col      : "Resources under Development and Field Evaluation",
+        capex_avg_col: "Exploration CAPEX 3-year average",
+        short_col    : "Short-Term Expansion ≥20 mmboe",
+        capex10_col  : "Exploration CAPEX ≥10 MUSD",
+    })
 
-    df[resources] = pd.to_numeric(
-        df[resources].astype(str).str.replace(",","",regex=True),
-        errors="coerce"
-    ).fillna(0)
-    df[capex_avg] = pd.to_numeric(
-        df[capex_avg].astype(str).str.replace(",","",regex=True),
-        errors="coerce"
-    ).fillna(0)
+    # ---- numeric conversion -------------------------------------------------
+    df["Resources under Development and Field Evaluation"] = (
+        df["Resources under Development and Field Evaluation"]
+          .astype(str).str.replace(",", "", regex=True).astype(float)
+          .fillna(0)
+    )
+    df["Exploration CAPEX 3-year average"] = (
+        df["Exploration CAPEX 3-year average"]
+          .astype(str).str.replace(",", "", regex=True).astype(float)
+          .fillna(0)
+    )
 
-    df["F2_Res"] = df[resources] > 0
-    df["F2_Avg"] = df[capex_avg] > 0
-    df["F2_ST"]  = df[shortterm].astype(str).str.lower().eq("yes")
-    df["F2_10M"] = df[capex10].astype(str).str.lower().eq("yes")
+    # ---- flagging rules -----------------------------------------------------
+    df["F2_Res"] = df["Resources under Development and Field Evaluation"] > 0
+    df["F2_Avg"] = df["Exploration CAPEX 3-year average"] > 0
+    df["F2_ST"]  = df["Short-Term Expansion ≥20 mmboe"].astype(str).str.lower().eq("yes")
+    df["F2_10M"] = df["Exploration CAPEX ≥10 MUSD"].astype(str).str.lower().eq("yes")
     df["Excluded"] = df[["F2_Res","F2_Avg","F2_ST","F2_10M"]].any(axis=1)
 
     df["Exclusion Reason"] = df.apply(
         lambda r: "; ".join(p for p in (
             "Resources under development and field evaluation > 0" if r["F2_Res"] else None,
             "3-yr CAPEX avg > 0" if r["F2_Avg"] else None,
-            "Short-Term Expansion = Yes" if r["F2_ST"] else None,
-            "CAPEX ≥10 MUSD = Yes" if r["F2_10M"] else None,
+            "Short-Term Expansion = Yes"   if r["F2_ST"]  else None,
+            "CAPEX ≥10 MUSD = Yes"         if r["F2_10M"] else None,
         ) if p),
         axis=1
     )
 
     exc = df[df["Excluded"]].copy()
     ret = df[~df["Excluded"]].copy()
-    return exc[["Company", resources, capex_avg, shortterm, capex10, "Exclusion Reason"]], \
-           ret[["Company", resources, capex_avg, shortterm, capex10, "Exclusion Reason"]]
+    return exc[[
+        "Company",
+        "Resources under Development and Field Evaluation",
+        "Exploration CAPEX 3-year average",
+        "Short-Term Expansion ≥20 mmboe",
+        "Exploration CAPEX ≥10 MUSD",
+        "Exclusion Reason"
+    ]], ret[[
+        "Company",
+        "Resources under Development and Field Evaluation",
+        "Exploration CAPEX 3-year average",
+        "Short-Term Expansion ≥20 mmboe",
+        "Exploration CAPEX ≥10 MUSD",
+        "Exclusion Reason"
+    ]]
 
 # ---------------- Excel Helpers ----------------
 
