@@ -392,10 +392,10 @@ def main():
               .str.strip("; ")
         )
         union.drop(columns=["L1_Reason","L2_Reason_AC","L2_Reason_UP"], inplace=True)
-        meta_cols = [
-            c for c in df_l1_all.columns
-            if c not in ("Company", "Exclusion Reason")   # <- keep them out
-        ]
+        meta_cols = df_l1_all.columns.difference(
+            ["Company", "Exclusion Reason"]
+        ).tolist()
+
 
         union = (
             union
