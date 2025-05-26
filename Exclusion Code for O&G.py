@@ -371,6 +371,16 @@ def main():
               .str.strip("; ")
         )
         union.drop(columns=["L1_Reason","L2_Reason_AC","L2_Reason_UP"], inplace=True)
+        meta_cols = [
+            c for c in df_l1_all.columns
+            if c not in ("Exclusion Reason",)          # we'll keep the one we just made
+        ]
+        union = (
+            union
+                .merge(df_l1_all[["Company", *meta_cols]], on="Company", how="left")
+                .merge(exc_all  .drop(columns=["Exclusion Reason"]), on="Company", how="left")
+                .merge(exc_up   .drop(columns=["Exclusion Reason"]), on="Company", how="left")
+        )
 
         # Retained Level 2
         all_names = set(df_l1_all["Company"])
@@ -379,9 +389,18 @@ def main():
         ret2 = ret2.merge(df_l1_all, on="Company", how="left")
 
         # Upstream full merge
-        exc_up_full = exc_up.merge(df_l1_all, on="Company", how="left")
-        ret_up_full = ret_up.merge(df_l1_all, on="Company", how="left")
+        exc_up_full = (
+            exc_up
+            .merge(df_l1_all.drop(columns=["Exclusion Reason"]),
+            on="Company", how="left")
+        )
+        ret_up_full = (
+            ret_up
+                .merge(df_l1_all.drop(columns=["Exclusion Reason"]),
+                    on="Company", how="left")
+        )
 
+        cols = list(dict.fromkeys(cols))
         buf = to_excel_l2(
             all_exc=union,
             exc1=exc1,
