@@ -439,5 +439,66 @@ def main():
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
 
+
+# ---------------- Level-2 — Midstream / “All-Companies” filter ----------------
+def filter_all_companies(df: pd.DataFrame):
+    """
+    Implements Level-2 ‘mid-stream’ screen on the **All Companies** sheet.
+    Returns (excluded_df, retained_df) with the canonical columns
+    and an ‘Exclusion Reason’ column.
+    """
+    # 1. tidy columns ---------------------------------------------------------
+    df = flatten_multilevel_columns(df)
+    df = df.loc[:, ~df.columns.str.lower().str.startswith("parent company")]
+    df = df.iloc[1:].reset_index(drop=True)          # drop header rows if present
+    df = ensure_unique_columns(df)
+
+    # 2. rename the few columns we care about --------------------------------
+    rename_map = {
+        "Company": ["company"],
+        "GOGEL Tab": ["gogel tab"],
+        "BB Ticker": ["bb ticker"],
+        "ISIN equity": ["isin equity"],
+        "LEI": ["lei"],
+        "Length of Pipelines under Development": ["length of pipelines"],
+        "Liquefaction Capacity (Export)":        ["liquefaction capacity"],
+        "Regasification Capacity (Import)":      ["regasification capacity"],
+        "Total Capacity under Development":      ["total capacity under development"],
+    }
+    df = rename_columns(df, rename_map)
+
+    # 3. make sure every canonical column exists -----------------------------
+    needed = list(rename_map.keys())
+    for c in needed:
+        if c not in df.columns:
+            df[c] = np.nan
+
+    # 4. numeric conversion for the four capacity columns --------------------
+    for c in needed[5:]:
+        df[c] = pd.to_numeric(
+            df[c].astype(str).str.replace(",", "", regex=True),
+            errors="coerce"
+        ).fillna(0)
+
+    # 5. flag & reason --------------------------------------------------------
+    df["Midstream_Flag"] = (
+        (df["Length of Pipelines under Development"] > 0) |
+        (df["Liquefaction Capacity (Export)"]        > 0) |
+        (df["Regasification Capacity (Import)"]      > 0) |
+        (df["Total Capacity under Development"]      > 0)
+    )
+    df["Excluded"] = df["Midstream_Flag"]
+    df["Exclusion Reason"] = np.where(
+        df["Midstream_Flag"],
+        "Midstream Expansion > 0",
+        ""
+    )
+
+    excluded = df[df["Excluded"]].copy()
+    retained = df[~df["Excluded"]].copy()
+    return excluded, retained
+
+
+
 if __name__ == "__main__":
     main()
