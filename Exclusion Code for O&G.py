@@ -329,6 +329,14 @@ def main():
     st.write("Applies All-Companies + Upstream filters, merges duplicates, and fills in all data.")
 
     if st.button("Run Level 2 Exclusion"):
+            df_all = pd.read_excel(uploaded, "All Companies", header=[3, 4])
+            df_all = ensure_unique_columns(df_all)      #  <-- after reading
+            exc_all, ret_all = filter_all_companies(df_all)
+
+            # Upstream L2
+            df_up = pd.read_excel(uploaded, "Upstream", header=[3, 4])
+            df_up = ensure_unique_columns(df_up)        #  <-- after reading
+            exc_up, ret_up = filter_upstream_companies(df_up)
         if not uploaded:
             st.warning("Please upload a file first.")
             return
