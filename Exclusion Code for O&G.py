@@ -239,6 +239,9 @@ def to_excel_l1(exc, ret, no_data):
         "Coalbed Methane Revenue","Extra Heavy Oil Revenue","Ultra Deepwater Revenue",
         "Arctic Revenue","Unconventional Production Revenue","Exclusion Reason","Custom Total Revenue"
     ]
+    exc     = remove_equity_from_bb_ticker(exc)
+    ret     = remove_equity_from_bb_ticker(ret)
+    no_data = remove_equity_from_bb_ticker(no_data)
     buf = BytesIO()
     with pd.ExcelWriter(buf, engine="xlsxwriter") as w:
         exc.reindex(columns=cols).to_excel(w, "Excluded Level 1", index=False)
@@ -260,6 +263,8 @@ def to_excel_l2(all_exc, exc1, exc2, ret1, ret2, exc_up, ret_up):
     ]
     # remove duplicates while preserving order
     cols = list(dict.fromkeys(cols))
+    for df in (all_exc, exc1, exc2, ret1, ret2, exc_up, ret_up):
+    df.update(remove_equity_from_bb_ticker(df))
 
     buf = BytesIO()
     with pd.ExcelWriter(buf, engine="xlsxwriter") as w:
