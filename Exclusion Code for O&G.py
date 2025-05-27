@@ -252,15 +252,22 @@ def to_excel_l1(exc, ret, no_data):
 
 def to_excel_l2(all_exc, exc1, exc2, ret1, ret2, exc_up, ret_up):
     cols = [
+        # identity / Level-1 data
         "Company","BB Ticker","ISIN equity","LEI",
         "Hydrocarbons Production (%)","Fracking Revenue","Tar Sand Revenue",
         "Coalbed Methane Revenue","Extra Heavy Oil Revenue","Ultra Deepwater Revenue",
-        "Arctic Revenue","Unconventional Production Revenue","Exclusion Reason","Custom Total Revenue",
+        "Arctic Revenue","Unconventional Production Revenue","Custom Total Revenue",
+        # midstream
         "GOGEL Tab","Length of Pipelines under Development","Liquefaction Capacity (Export)",
         "Regasification Capacity (Import)","Total Capacity under Development",
+        # upstream
         "Resources under Development and Field Evaluation","Exploration CAPEX 3-year average",
-        "Short-Term Expansion ≥20 mmboe","Exploration CAPEX ≥10 MUSD","Exclusion Reason"
+        "Short-Term Expansion ≥20 mmboe","Exploration CAPEX ≥10 MUSD",
+        # …and finally the reason string
+        "Exclusion Reason"
     ]
+    cols = list(dict.fromkeys(cols))   # keep order, drop accidental dups
+
     # remove duplicates while preserving order
     cols = list(dict.fromkeys(cols))
     for df in (all_exc, exc1, exc2, ret1, ret2, exc_up, ret_up):
@@ -401,6 +408,11 @@ def main():
                 .merge(exc_all  .drop(columns=["Exclusion Reason"]), on="Company", how="left")
                 .merge(exc_up   .drop(columns=["Exclusion Reason"]), on="Company", how="left")
         )
+        union = union.merge(
+            df_l1_all[["Company", "BB Ticker", "ISIN equity", "LEI"]],
+            on="Company", how="left", suffixes=("", "_y")
+        )
+        union = union.drop(columns=[c for c in union.columns if c.endswith("_y")])
 
         # Retained Level 2
         all_names = set(df_l1_all["Company"])
