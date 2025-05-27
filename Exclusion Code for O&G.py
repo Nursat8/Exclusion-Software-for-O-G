@@ -264,7 +264,7 @@ def to_excel_l2(all_exc, exc1, exc2, ret1, ret2, exc_up, ret_up):
     # remove duplicates while preserving order
     cols = list(dict.fromkeys(cols))
     for df in (all_exc, exc1, exc2, ret1, ret2, exc_up, ret_up):
-    df.update(remove_equity_from_bb_ticker(df))
+        df.update(remove_equity_from_bb_ticker(df))
 
     buf = BytesIO()
     with pd.ExcelWriter(buf, engine="xlsxwriter") as w:
