@@ -8,7 +8,7 @@ import streamlit as st
 def ensure_unique_columns(df):
     """
     If a column label appears more than once keep only the **first** copy.
-    (All values are identical anyway because they came from the same sheet.)
+    (All values are identical anyway because they came from the same sheet. 1111111111)
     """
     return df.loc[:, ~df.columns.duplicated()].copy()
 def flatten_multilevel_columns(df):
