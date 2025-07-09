@@ -4,13 +4,12 @@ import numpy as np
 from io import BytesIO
 import streamlit as st
 
-# ---------------- Helper Functions ----------------
+# 🔹 Helper Functions 🔹
+# 🔹 Drops duplicate labels when the same header is repeated twice in the Excel file. Keeps the first occurrence. It is needed because of multi sheet file with the same names in columns 🔹
 def ensure_unique_columns(df):
-    """
-    If a column label appears more than once keep only the **first** copy.
-    (All values are identical anyway because they came from the same sheet. 1111111111)
-    """
     return df.loc[:, ~df.columns.duplicated()].copy()
+    
+# 🔹Takes a 2-level MultiIndex produced by header=[3,4] reads and collapses it into a single string per column 🔹    
 def flatten_multilevel_columns(df):
     df.columns = [
         " ".join(str(l).strip() for l in col).strip()
@@ -18,6 +17,7 @@ def flatten_multilevel_columns(df):
     ]
     return df
 
+# 🔹Searches column headers using any of three modes: exact (“Hydrocarbons Production %”), partial (substring match), regex. Normalises spaces, case, and line-breaks before matching. Raises ValueError when required=True and nothing found 🔹 
 def find_column(df, patterns, how="partial", required=True):
     norm_map = {
         col: re.sub(r"\s+", " ", col.strip().lower().replace("\n", " "))
@@ -48,6 +48,7 @@ def find_column(df, patterns, how="partial", required=True):
         raise ValueError(f"Could not find a required column among {patterns}\nAvailable: {list(df.columns)}")
     return None
 
+# 🔹For every canonical name in rename_map, calls find_column() to locate the current spelling and renames it in-place. 🔹 
 def rename_columns(df, rename_map):
     for new, pats in rename_map.items():
         old = find_column(df, pats, how="partial", required=False)
@@ -55,6 +56,7 @@ def rename_columns(df, rename_map):
             df.rename(columns={old: new}, inplace=True)
     return df
 
+# 🔹 Removes hard-space (\u00A0) characters. Strips any case-insensitive " Equity" suffix. Returns a copy so original df is untouched.🔹 
 def remove_equity_from_bb_ticker(df):
     df = df.copy()
     if "BB Ticker" in df.columns:
@@ -67,8 +69,8 @@ def remove_equity_from_bb_ticker(df):
         )
     return df
 
-# ---------------- Level 1 Exclusion ----------------
-
+# 🔹🔹🔹 Level 1 Exclusion 🔹🔹🔹
+# 🔹 Opens "All Companies" sheet of uploaded file. Rows 4 and 5 (0-indexed) form a two-level column index. It is needed as column name located not in the first rows. Data clearing and remove "Equity" suffix; Ignores comumn with name parent company🔹
 def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_thresholds):
     xls = pd.ExcelFile(uploaded_file)
     df = xls.parse("All Companies", header=[3,4])
@@ -76,6 +78,7 @@ def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_threshol
     df = df.loc[:, ~df.columns.str.lower().str.startswith("parent company")]
     df = remove_equity_from_bb_ticker(df)
 
+    # 🔹 Canonical names for integrity🔹
     rename_map = {
         "Company": ["company name","company"],
         "BB Ticker": ["bb ticker"],
@@ -91,16 +94,19 @@ def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_threshol
         "Unconventional Production Revenue": ["unconventional production"]
     }
     df = rename_columns(df, rename_map)
-
+   
+    # 🔹 needed = list(rename_map.keys()) - build a list of every canonical column name. if c not in df.columns - if the column is missing in the DataFrame. df[c] = np.nan - create it and fill it entirely with NaN 🔹
     needed = list(rename_map.keys())
     for c in needed:
         if c not in df.columns:
             df[c] = np.nan
 
+    # 🔹 no_data contains companies for which every revenue metric is missing or blank in the workbook. The result is that the main DataFrame df now includes only companies with at least one non-missing revenue value. 🔹
     revenue_cols = needed[4:]
     no_data = df[df[revenue_cols].isnull().all(axis=1)].copy()
     df = df.dropna(subset=revenue_cols, how="all")
-
+ 
+    # 🔹 European comma → US dot, percent sign removed, cast to float and corrupt values cleaning 🔹
     for c in revenue_cols:
         df[c] = (
             df[c]
@@ -109,12 +115,15 @@ def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_threshol
               .str.replace(",","",regex=True)
         )
         df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0)
-
+   
+    # 🔹 total_thresholds is a dictionary built from user inputs in the Streamlit sidebar. Filters out any missing columns to avoid a KeyError. 🔹
+    # 🔹 df[key] = df[secs].sum(axis=1) if secs else 0.0 adds up the values across the selected sector columns per row (i.e. per company). Later in the code, these new columns are used to apply custom exclusion rules 🔹
     for key,info in total_thresholds.items():
         secs = [s for s in info["sectors"] if s in df.columns]
         df[key] = df[secs].sum(axis=1) if secs else 0.0
-
-    # Build Level 1 reasons
+        
+    # 🔹 Build Level 1 exclusion reasons for output file 🔹
+    # 🔹 Loops through each sector rule defined by the user. Each item has: flag: whether this exclusion is turned on. thr: threshold string (e.g., "10" meaning 10%). Also check whether value is in percentages or not 🔹
     reasons = []
     for _,r in df.iterrows():
         parts = []
@@ -125,6 +134,7 @@ def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_threshol
                         parts.append(f"{sector} > {thr}%")
                 except:
                     pass
+    # 🔹 Each key is something like "Custom Total 1", "Custom Total 2". reasons.append("; ".join(parts)) joins all reasons for the exclusion reasons row🔹
         for key,info in total_thresholds.items():
             t = info.get("threshold","").strip()
             if t:
@@ -135,14 +145,18 @@ def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_threshol
                     pass
         reasons.append("; ".join(parts))
     df["Exclusion Reason"] = reasons
-
+   
+    # 🔹 Checks for empty and not empty exclusion reasons in excluded and retained companies sheets and creates copy for reasons🔹
     excluded = df[df["Exclusion Reason"]!=""].copy()
     retained = df[df["Exclusion Reason"]==""].copy()
 
+    # 🔹 For Custom Total 1 rename. If there is only 1 Custom Total🔹
     if "Custom Total 1" in df.columns:
         for d in (excluded, retained, no_data):
             d.rename(columns={"Custom Total 1":"Custom Total Revenue"}, inplace=True)
-
+  
+    # 🔹 Fix any '.' company names. Makes sure the column is explicitly named "Company". 🔹
+    # 🔹Removes any previous row index that might have been carried over from filtering or grouping. For any row where "Company" is now NaN, replace it with the corresponding entry from raw["Company"]🔹
     # Fix any '.' company names
     raw = xls.parse("All Companies", header=[3,4]).iloc[:,[6]]
     raw = flatten_multilevel_columns(raw)
@@ -156,12 +170,13 @@ def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_threshol
 
     return excluded, retained, no_data
 
-# ---------------- Level-2 — Upstream filter ----------------
+# 🔹🔹🔹 Level-2 — Upstream filter 🔹🔹🔹
+# 🔹 Removes any columns that start with "Parent company" 🔹
 def filter_upstream_companies(df):
     df = flatten_multilevel_columns(df)
     df = df.loc[:, ~df.columns.str.lower().str.startswith("parent company")]
 
-    # ---- locate the columns (works with any spelling) ----
+    # 🔹 locate the columns (works with any spelling). Type of searching can be adjusted in "how =" 🔹
     comp_col      = find_column(df, ["company"], how="partial", required=True)
     res_col       = find_column(df, ["resources under development and field evaluation"],
                                 how="partial", required=True)
@@ -172,7 +187,7 @@ def filter_upstream_companies(df):
     capex10_col   = find_column(df, ["exploration capex ≥10 musd"],
                                 how="partial", required=True)
 
-    # ---- rename to canonical spellings so every sheet matches ----
+    # 🔹 rename to canonical spellings so every sheet matches 🔹
     df = df.rename(columns={
         comp_col     : "Company",
         res_col      : "Resources under Development and Field Evaluation",
@@ -181,27 +196,28 @@ def filter_upstream_companies(df):
         capex10_col  : "Exploration CAPEX ≥10 MUSD",
     })
 
-    # ---- numeric conversion -------------------------------------------------
+    # 🔹 numeric conversion 🔹
     num_cols = [
         "Resources under Development and Field Evaluation",
         "Exploration CAPEX 3-year average",
     ]
     for c in num_cols:
         df[c] = pd.to_numeric(
-            df[c].astype(str)               # keep strings safe
-                 .str.replace(",", "", regex=True)
-                 .str.replace(r"[^\d.\-]", "", regex=True),   # strip any units / text
+            df[c].astype(str)               # 🔹 Ensures even numeric or null cells are treated as strings.
+                 .str.replace(",", "", regex=True)   # 🔹 Removes commas
+                 .str.replace(r"[^\d.\-]", "", regex=True),   # 🔹 Removes everything except digits, decimal points, and minus signs.
             errors="coerce"
         ).fillna(0)
 
 
-    # ---- flagging rules -----------------------------------------------------
+    # 🔹 Checks whether the company has any resources under development, invested any CAPEX over the past 3 years, short-term expansion exceeds 20 MMBOE, larger exploration projects with CAPEX ≥ $10 million, Exclude if any condition is true 🔹
     df["F2_Res"] = df["Resources under Development and Field Evaluation"] > 0
     df["F2_Avg"] = df["Exploration CAPEX 3-year average"] > 0
     df["F2_ST"]  = df["Short-Term Expansion ≥20 mmboe"].astype(str).str.lower().eq("yes")
     df["F2_10M"] = df["Exploration CAPEX ≥10 MUSD"].astype(str).str.lower().eq("yes")
     df["Excluded"] = df[["F2_Res","F2_Avg","F2_ST","F2_10M"]].any(axis=1)
 
+    # 🔹 To populate the "Exclusion Reason" column in the DataFrame with text that explains which upstream condition(s) each company violated. Adds reasons if they are true🔹
     df["Exclusion Reason"] = df.apply(
         lambda r: "; ".join(p for p in (
             "Resources under development and field evaluation > 0" if r["F2_Res"] else None,
@@ -212,6 +228,7 @@ def filter_upstream_companies(df):
         axis=1
     )
 
+    # 🔹 This final block of the filter_upstream_companies(df) function splits the dataset into two separate groups: excluded and retained companies🔹
     exc = df[df["Excluded"]].copy()
     ret = df[~df["Excluded"]].copy()
     return exc[[
@@ -230,8 +247,8 @@ def filter_upstream_companies(df):
         "Exclusion Reason"
     ]]
 
-# ---------------- Excel Helpers ----------------
-
+# 🔹 Excel Helpers 🔹
+# 🔹 Creates output file columns. exc → DataFrame of excluded companies (from Level 1 rules), ret → DataFrame of retained companies, no_data → DataFrame of companies that lacked enough input data to evaluate 🔹
 def to_excel_l1(exc, ret, no_data):
     cols = [
         "Company","BB Ticker","ISIN equity","LEI",
@@ -250,6 +267,7 @@ def to_excel_l1(exc, ret, no_data):
     buf.seek(0)
     return buf
 
+# 🔹 This function, to_excel_l2, generates a multi-sheet Excel report for Level 2 filtering, including results from all three filters: Level 1, midstream (All Companies), and upstream 🔹
 def to_excel_l2(all_exc, exc1, exc2, ret1, ret2, exc_up, ret_up):
     cols = [
         # identity / Level-1 data
@@ -286,13 +304,13 @@ def to_excel_l2(all_exc, exc1, exc2, ret1, ret2, exc_up, ret_up):
     return buf
 
 
-# ---------------- Streamlit App ----------------
+# 🔹🔹🔹 Streamlit App (UI)🔹🔹🔹
 
 def main():
     st.title("Level 1 & Level 2 Exclusion Filter for O&G")
     uploaded = st.file_uploader("Upload Excel file", type=["xlsx"])
 
-    # Level 1 sidebar
+    # 🔹 Level 1 sidebar 🔹
     st.sidebar.header("Level 1 Settings")
     sectors = [
         "Hydrocarbons Production (%)","Fracking Revenue","Tar Sand Revenue",
@@ -337,7 +355,7 @@ def main():
         df_all = pd.read_excel(uploaded, "All Companies", header=[3, 4])
         df_all = ensure_unique_columns(df_all)      #  <-- after reading
         exc_all, ret_all = filter_all_companies(df_all)
-       # Upstream L2
+       # 🔹 Upstream L2
         df_up = pd.read_excel(uploaded, "Upstream", header=[3, 4])
         df_up = ensure_unique_columns(df_up)        #  <-- after reading
         exc_up, ret_up = filter_upstream_companies(df_up)
@@ -345,50 +363,50 @@ def main():
             st.warning("Please upload a file first.")
             return
 
-        # Rerun L1 to get full df_l1_all
+        # 🔹 Rerun L1 to get full df_l1_all 🔹 
         exc1, ret1, no1 = filter_companies_by_revenue(uploaded, sector_excs, total_thresholds)
         df_l1_all = pd.concat([exc1, ret1, no1], ignore_index=True)
         df_l1_all = ensure_unique_columns(df_l1_all)
 
-        # after you read the two Level-2 source sheets
+        # 🔹 after you read the two Level-2 source sheets 🔹
         df_all = ensure_unique_columns(df_all)
         df_up  = ensure_unique_columns(df_up)
 
-        # after you build exc_all / ret_all, exc_up / ret_up
+        # 🔹 after you build exc_all / ret_all, exc_up / ret_up 🔹
         exc_all = ensure_unique_columns(exc_all)
         exc_up  = ensure_unique_columns(exc_up)
 
-        # All-Companies L2
+        # 🔹 All-Companies L2 🔹
         df_all = pd.read_excel(uploaded, "All Companies", header=[3,4])
         exc_all, ret_all = filter_all_companies(df_all)
 
-        # Upstream L2
+        # 🔹 Upstream L2 🔹
         df_up = pd.read_excel(uploaded, "Upstream", header=[3,4])
         exc_up, ret_up = filter_upstream_companies(df_up)
 
-        # Build All Excluded Companies union
+        # 🔹 Build All Excluded Companies union 🔹
         union = pd.concat([
             exc1[["Company"]],
             exc_all[["Company"]],
             exc_up[["Company"]]
         ]).drop_duplicates()
 
-        # Merge in Level 1 Reason
+        # 🔹 Merge in Level 1 Reason 🔹 
         df_l1_meta = df_l1_all[["Company","Exclusion Reason"]].rename(columns={"Exclusion Reason":"L1_Reason"})
         union = union.merge(df_l1_meta, on="Company", how="left")
 
-        # Merge in Level 2 All-Companies Reason
+        # 🔹 Merge in Level 2 All-Companies Reason 🔹
         union = union.merge(
             exc_all[["Company","Exclusion Reason"]].rename(columns={"Exclusion Reason":"L2_Reason_AC"}),
             on="Company", how="left"
         )
-        # Merge in Level 2 Upstream Reason
+        # 🔹 Merge in Level 2 Upstream Reason 🔹
         union = union.merge(
             exc_up[["Company","Exclusion Reason"]].rename(columns={"Exclusion Reason":"L2_Reason_UP"}),
             on="Company", how="left"
         )
 
-        # Combine all three reasons into final Exclusion Reason
+        # 🔹 Combine all three reasons into final Exclusion Reason 🔹
         union["Exclusion Reason"] = (
             union[["L1_Reason","L2_Reason_AC","L2_Reason_UP"]]
               .fillna("")
@@ -414,13 +432,13 @@ def main():
         )
         union = union.drop(columns=[c for c in union.columns if c.endswith("_y")])
 
-        # Retained Level 2
+        # 🔹 Retained Level 2 🔹
         all_names = set(df_l1_all["Company"])
         exc2_names = set(union["Company"])
         ret2 = pd.DataFrame({"Company":[c for c in all_names if c not in exc2_names]})
         ret2 = ret2.merge(df_l1_all, on="Company", how="left")
 
-        # Upstream full merge
+        # 🔹 Upstream full merge 🔹 
         exc_up_full = (
             exc_up
             .merge(df_l1_all.drop(columns=["Exclusion Reason"]),
@@ -459,20 +477,20 @@ def main():
         )
 
 
-# ---------------- Level-2 — Midstream / “All-Companies” filter ----------------
+# 🔹 Level-2 — Midstream / “All-Companies” filter 🔹
 def filter_all_companies(df: pd.DataFrame):
     """
-    Implements Level-2 ‘mid-stream’ screen on the **All Companies** sheet.
+    🔹 Implements Level-2 ‘mid-stream’ screen on the **All Companies** sheet.
     Returns (excluded_df, retained_df) with the canonical columns
-    and an ‘Exclusion Reason’ column.
+    and an ‘Exclusion Reason’ column. 🔹
     """
     # 1. tidy columns ---------------------------------------------------------
     df = flatten_multilevel_columns(df)
-    df = df.loc[:, ~df.columns.str.lower().str.startswith("parent company")]
-    df = df.iloc[1:].reset_index(drop=True)          # drop header rows if present
+    df = df.loc[:, ~df.columns.str.lower().str.startswith("parent company")]         
+    df = df.iloc[1:].reset_index(drop=True)          # 🔹 Drops the first data row (df.iloc[1:]), which may contain merged header content or notes from Excel. Resets the index afterward so the rows are renumbered properly. 🔹
     df = ensure_unique_columns(df)
 
-    # 2. rename the few columns we care about --------------------------------
+    # 🔹 2. rename the few columns we care about 🔹
     rename_map = {
         "Company": ["company"],
         "GOGEL Tab": ["gogel tab"],
@@ -486,20 +504,20 @@ def filter_all_companies(df: pd.DataFrame):
     }
     df = rename_columns(df, rename_map)
 
-    # 3. make sure every canonical column exists -----------------------------
+    # 🔹 3. make sure every canonical column exists 🔹
     needed = list(rename_map.keys())
     for c in needed:
         if c not in df.columns:
             df[c] = np.nan
 
-    # 4. numeric conversion for the four capacity columns --------------------
+    # 🔹 4. numeric conversion for the four capacity columns 🔹
     for c in needed[5:]:
         df[c] = pd.to_numeric(
             df[c].astype(str).str.replace(",", "", regex=True),
             errors="coerce"
         ).fillna(0)
 
-    # 5. flag & reason --------------------------------------------------------
+    # 🔹 5. flag & reason. For midstream exclusion 🔹
     df["Midstream_Flag"] = (
         (df["Length of Pipelines under Development"] > 0) |
         (df["Liquefaction Capacity (Export)"]        > 0) |
