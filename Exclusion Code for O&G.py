@@ -70,7 +70,7 @@ def remove_equity_from_bb_ticker(df):
     return df
 
 # 🔹🔹🔹 Level 1 Exclusion 🔹🔹🔹
-# 🔹 Opens "All Companies" sheet of uploaded file. Rows 4 and 5 (0-indexed) form a two-level column index. It is needed as column name located not in the first rows. Data clearing and remove "Equity" suffix; Ignores comumn with name parent company🔹
+# 🔹 Opens "All Companies" sheet of uploaded file. Rows 4 and 5 (0-indexed) form a two-level column index. It is needed as column name located not in the first rows. Data clearing and remove "Equity" suffix; Ignores column with name parent company🔹
 def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_thresholds):
     xls = pd.ExcelFile(uploaded_file)
     df = xls.parse("All Companies", header=[3,4])
@@ -95,7 +95,7 @@ def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_threshol
     }
     df = rename_columns(df, rename_map)
    
-    # 🔹 needed = list(rename_map.keys()) - build a list of every canonical column name. if c not in df.columns - if the column is missing in the DataFrame. df[c] = np.nan - create it and fill it entirely with NaN 🔹
+    # 🔹 needed = list(rename_map.keys()) - build a list of every canonical column name. if column not in df.columns (excel) - if the column is missing in the DataFrame (in excel. df[c] = np.nan - create it and fill it entirely with NaN 🔹
     needed = list(rename_map.keys())
     for c in needed:
         if c not in df.columns:
@@ -117,7 +117,7 @@ def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_threshol
         df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0)
    
     # 🔹 total_thresholds is a dictionary built from user inputs in the Streamlit sidebar. Filters out any missing columns to avoid a KeyError. 🔹
-    # 🔹 df[key] = df[secs].sum(axis=1) if secs else 0.0 adds up the values across the selected sector columns per row (i.e. per company). Later in the code, these new columns are used to apply custom exclusion rules 🔹
+    # 🔹 "df[key] = df[secs].sum(axis=1) if secs else 0.0" adds up the values across the selected sector columns per row (i.e. per company). Later in the code, these new columns are used to apply custom sum exclusion rules 🔹
     for key,info in total_thresholds.items():
         secs = [s for s in info["sectors"] if s in df.columns]
         df[key] = df[secs].sum(axis=1) if secs else 0.0
@@ -134,7 +134,7 @@ def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_threshol
                         parts.append(f"{sector} > {thr}%")
                 except:
                     pass
-    # 🔹 Each key is something like "Custom Total 1", "Custom Total 2". reasons.append("; ".join(parts)) joins all reasons for the exclusion reasons row🔹
+    # 🔹 Each key is something like "Custom Total 1", "Custom Total 2". "reasons.append("; ".join(parts))" joins all reasons for the exclusion reasons row🔹
         for key,info in total_thresholds.items():
             t = info.get("threshold","").strip()
             if t:
@@ -146,7 +146,7 @@ def filter_companies_by_revenue(uploaded_file, sector_exclusions, total_threshol
         reasons.append("; ".join(parts))
     df["Exclusion Reason"] = reasons
    
-    # 🔹 Checks for empty and not empty exclusion reasons in excluded and retained companies sheets and creates copy for reasons🔹
+    # 🔹 Checks for empty and not empty exclusion reasons in excluded and retained companies sheets and creates copy for reasons 🔹
     excluded = df[df["Exclusion Reason"]!=""].copy()
     retained = df[df["Exclusion Reason"]==""].copy()
 
