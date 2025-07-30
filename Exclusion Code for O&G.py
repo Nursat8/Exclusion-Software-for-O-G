@@ -344,6 +344,7 @@ def main():
         if sels and thr:
             total_thresholds[f"Custom Total {i+1}"] = {"sectors":sels,"threshold":thr}
 
+    # 🔹 adds a button that filters companies based on revenue and offers a download of results. When you click the “Run Level 1 Exclusion” button: It checks if a file is uploaded, Filters companies based on revenue rules, Tells you it's done, Lets you download the results🔹  
     if st.sidebar.button("Run Level 1 Exclusion"):
         if not uploaded:
             st.warning("Please upload a file first.")
@@ -356,11 +357,12 @@ def main():
                 file_name="O&G_Level1_Exclusion.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
-
+    # 🔹 Introduces Level 2 filtering 🔹
     st.markdown("---")
     st.header("Level 2 Exclusion")
     st.write("Applies All-Companies + Upstream filters, merges duplicates, and fills in all data.")
-
+    
+    # 🔹 When the user clicks “Run Level 2 Exclusion”. It collects all excluded companies, lists why they were excluded, and gives the user a downloadable Excel report.🔹
     if st.button("Run Level 2 Exclusion"):
         df_all = pd.read_excel(uploaded, "All Companies", header=[3, 4])
         df_all = ensure_unique_columns(df_all)      #  <-- after reading
@@ -373,50 +375,50 @@ def main():
             st.warning("Please upload a file first.")
             return
 
-        # 🔹 Rerun L1 to get full df_l1_all 🔹 
+        # 🔹 This code runs the Level 1 filtering using the file and settings the user chose. It then combines all the results (excluded, retained, and no-data) into one clean table, making sure the columns are neat and non-duplicated 🔹 
         exc1, ret1, no1 = filter_companies_by_revenue(uploaded, sector_excs, total_thresholds)
         df_l1_all = pd.concat([exc1, ret1, no1], ignore_index=True)
         df_l1_all = ensure_unique_columns(df_l1_all)
 
-        # 🔹 after you read the two Level-2 source sheets 🔹
+        # 🔹 This makes sure that both the “All Companies” sheet and the “Upstream” sheet have no repeated columns, so that the next steps in Level 2 filtering can run safely and correctly. 🔹
         df_all = ensure_unique_columns(df_all)
         df_up  = ensure_unique_columns(df_up)
 
-        # 🔹 after you build exc_all / ret_all, exc_up / ret_up 🔹
+        # 🔹 This makes sure that both the midstream and upstream exclusion results are clean and have no repeated column names before we combine or export them. 🔹
         exc_all = ensure_unique_columns(exc_all)
         exc_up  = ensure_unique_columns(exc_up)
 
-        # 🔹 All-Companies L2 🔹
+        # 🔹 This reads the All Companies sheet from the uploaded Excel file, and checks whether companies are expanding their pipeline or gas infrastructure. Based on this, it splits the companies into two groups: ❌ excluded and ✅ retained. 🔹
         df_all = pd.read_excel(uploaded, "All Companies", header=[3,4])
         exc_all, ret_all = filter_all_companies(df_all)
 
-        # 🔹 Upstream L2 🔹
+        # 🔹 This reads the Upstream sheet and filters out companies that are actively investing in new oil/gas exploration or development. It splits the companies into ❌ excluded and ✅ retained based on these checks. 🔹
         df_up = pd.read_excel(uploaded, "Upstream", header=[3,4])
         exc_up, ret_up = filter_upstream_companies(df_up)
 
-        # 🔹 Build All Excluded Companies union 🔹
+        # 🔹 This builds a combined list of all excluded companies, no matter whether they were filtered out in Level 1, midstream, or upstream. It makes sure each company only appears once, even if it was excluded in more than one way. 🔹
         union = pd.concat([
             exc1[["Company"]],
             exc_all[["Company"]],
             exc_up[["Company"]]
         ]).drop_duplicates()
 
-        # 🔹 Merge in Level 1 Reason 🔹 
+        # 🔹 This step adds the Level 1 exclusion reason to the combined list of excluded companies. So later, when we build the final Excel report, we can say exactly why each company was excluded. 🔹 
         df_l1_meta = df_l1_all[["Company","Exclusion Reason"]].rename(columns={"Exclusion Reason":"L1_Reason"})
         union = union.merge(df_l1_meta, on="Company", how="left")
 
-        # 🔹 Merge in Level 2 All-Companies Reason 🔹
+        # 🔹 This step adds the midstream (Level 2) exclusion reason — based on things like pipelines or gas infrastructure — to the list of excluded companies. Now, each company will show if it was filtered out in Level 1, midstream, or both. 🔹
         union = union.merge(
             exc_all[["Company","Exclusion Reason"]].rename(columns={"Exclusion Reason":"L2_Reason_AC"}),
             on="Company", how="left"
         )
-        # 🔹 Merge in Level 2 Upstream Reason 🔹
+        # 🔹 This step adds the upstream exclusion reason — like if the company spent money on new oil/gas projects — to the list of excluded companies. Now we’ll know if each company was excluded because of revenue, midstream pipelines, or upstream exploration.🔹
         union = union.merge(
             exc_up[["Company","Exclusion Reason"]].rename(columns={"Exclusion Reason":"L2_Reason_UP"}),
             on="Company", how="left"
         )
 
-        # 🔹 Combine all three reasons into final Exclusion Reason 🔹
+        # 🔹 This creates one final column that combines all the exclusion reasons (Level 1, midstream, and upstream) into one clear sentence per company.🔹
         union["Exclusion Reason"] = (
             union[["L1_Reason","L2_Reason_AC","L2_Reason_UP"]]
               .fillna("")
@@ -429,7 +431,7 @@ def main():
             ["Company", "Exclusion Reason"]
         ).tolist()
 
-
+        # 🔹 This part of the code adds back all useful company information — like revenue, tickers, IDs, and upstream/midstream values — to the final list of excluded companies. It then cleans up duplicate columns to keep the table tidy for exporting to Excel. 🔹 
         union = (
             union
                 .merge(df_l1_all[["Company", *meta_cols]], on="Company", how="left")
@@ -442,13 +444,13 @@ def main():
         )
         union = union.drop(columns=[c for c in union.columns if c.endswith("_y")])
 
-        # 🔹 Retained Level 2 🔹
+        # 🔹 These lines build the list of companies that passed all filters — they weren't excluded by revenue, pipelines, or upstream activity — and brings back all their details for reporting. 🔹
         all_names = set(df_l1_all["Company"])
         exc2_names = set(union["Company"])
         ret2 = pd.DataFrame({"Company":[c for c in all_names if c not in exc2_names]})
         ret2 = ret2.merge(df_l1_all, on="Company", how="left")
 
-        # 🔹 Upstream full merge 🔹 
+        # 🔹 This step builds the final upstream report tables, with all the details needed for the Excel file — making sure each company has its filtering reason plus all its info like revenue, tickers, and ID numbers🔹 
         exc_up_full = (
             exc_up
             .merge(df_l1_all.drop(columns=["Exclusion Reason"]),
@@ -460,7 +462,7 @@ def main():
                     on="Company", how="left")
         )
 
-        
+        # 🔹 This block creates the final Excel report with all filtered companies. Then it gives the user a button to download that Excel report 🔹
         buf = to_excel_l2(
             all_exc=union,
             exc1=exc1,
@@ -487,7 +489,7 @@ def main():
         )
 
 
-# 🔹 Level-2 — Midstream / “All-Companies” filter 🔹
+# 🔹 This first part of the "filter_all_companies()" function cleans and prepares the data from the "All Companies" sheet so that we can safely check for companies involved in midstream oil & gas expansion.🔹
 def filter_all_companies(df: pd.DataFrame):
     """
     🔹 Implements Level-2 ‘mid-stream’ screen on the **All Companies** sheet.
@@ -514,7 +516,7 @@ def filter_all_companies(df: pd.DataFrame):
     }
     df = rename_columns(df, rename_map)
 
-    # 🔹 3. make sure every canonical column exists 🔹
+    # 🔹 3. make sure every standardized column name exists 🔹
     needed = list(rename_map.keys())
     for c in needed:
         if c not in df.columns:
